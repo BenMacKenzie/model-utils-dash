@@ -1,29 +1,79 @@
 import dash_bootstrap_components as dbc
 from dash import html, dcc
+from utils.db import get_projects
 
 def create_list_tab():
-    # Store component to maintain the list of items
-    store = dcc.Store(id='list-store', data={'items': [{'id': i, 'text': f'Item {i}'} for i in range(3)]})
+    # Retrieve projects from the database
+    df = get_projects()
+    # Convert to items for storage and display
+    items = []
+    if not df.empty:
+        records = df.to_dict(orient='records')
+        # Build list of projects with full details
+        items = [
+            {
+                'id': int(rec['id']),
+                'text': rec.get('name'),
+                'description': rec.get('description'),
+                'catalog': rec.get('catalog'),
+                'schema': rec.get('schema'),
+            }
+            for rec in records
+        ]
 
-    # Initial list group
-    listgroup = dbc.ListGroup(
-        [
+    # Store component to maintain the list of projects
+    store = dcc.Store(id='list-store', data={'items': items})
+
+    # Create list group items
+    list_items = []
+    for idx, item in enumerate(items):
+        list_items.append(
             dbc.ListGroupItem(
-                f"Item {i}",
-                id={"type": "list-group-item", "index": i},
+                item['text'],
+                id={"type": "list-group-item", "index": item['id']},
                 action=True,
-                active=i==0
+                active=(idx == 0)
             )
-            for i in range(3)
-        ],
-        id="list-group",
-    )
+        )
+    # Show message if no projects found
+    if not list_items:
+        list_items = [
+            dbc.ListGroupItem(
+                "No projects found.",
+                id={"type": "list-group-item", "index": -1},
+                disabled=True
+            )
+        ]
 
+    listgroup = dbc.ListGroup(list_items, id="list-group")
+
+    # Form to create a new project
+    create_form = dbc.Form([
+        html.Div([
+            dbc.Label("Name", html_for="project-name"),
+            dbc.Input(type="text", id="project-name", placeholder="Enter project name"),
+        ], className="mb-3"),
+        html.Div([
+            dbc.Label("Description", html_for="project-description"),
+            dbc.Input(type="text", id="project-description", placeholder="Enter description"),
+        ], className="mb-3"),
+        html.Div([
+            dbc.Label("Catalog", html_for="project-catalog"),
+            dbc.Input(type="text", id="project-catalog", placeholder="Enter catalog"),
+        ], className="mb-3"),
+        html.Div([
+            dbc.Label("Schema", html_for="project-schema"),
+            dbc.Input(type="text", id="project-schema", placeholder="Enter schema"),
+        ], className="mb-3"),
+        html.Div([
+            dbc.Button("Create Project", id="create-project-button", color="success", className="me-2"),
+            dbc.Button("Update Project", id="update-project-button", color="primary"),
+        ], className="mt-3")
+    ])
+    # Layout: project list and creation form side by side
     return dbc.Tab([
         dbc.Row([
             dbc.Col(listgroup, width=8),
-            dbc.Col([
-                dbc.Button("Add Item", id="add-button", color="primary", className="mb-3")
-            ], width=4)
+            dbc.Col(create_form, width=4)
         ])
-    ], label="List Items", tab_id="tab-list"), store 
+    ], label="Projects", tab_id="tab-list"), store
