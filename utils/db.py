@@ -113,3 +113,76 @@ def update_project(project_id, name, description, catalog, schema):
         finally:
             conn.close()
         return None
+    
+def get_datasets(project_id):
+    """Fetches all datasets for a given project."""
+
+    
+    return fetch_data(
+        "SELECT id, name, source_type, evaluation_type, materialized, target"
+        " FROM datasets WHERE project_id = %s ORDER BY name ASC;",
+        params=(project_id,)
+    )
+
+def create_dataset(project_id, name, source_type, evaluation_type, materialized, target):
+    """Inserts a new dataset for the given project and returns the new dataset ID."""
+    conn = get_db_connection()
+    if conn is None:
+        return None
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO datasets (project_id, name, source_type, evaluation_type, materialized, target)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            RETURNING id;
+            """,
+            (project_id, name, source_type, evaluation_type, materialized, target)
+        )
+        dataset_id = cur.fetchone()[0]
+        conn.commit()
+        cur.close()
+        conn.close()
+        return dataset_id
+    except Exception as e:
+        print(f"Error creating dataset: {e}")
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        finally:
+            conn.close()
+        return None
+
+def update_dataset(dataset_id, name, source_type, evaluation_type, materialized, target):
+    """Updates an existing dataset and returns the dataset ID if successful."""
+    conn = get_db_connection()
+    if conn is None:
+        return None
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            UPDATE datasets
+            SET name = %s,
+                source_type = %s,
+                evaluation_type = %s,
+                materialized = %s,
+                target = %s
+            WHERE id = %s;
+            """,
+            (name, source_type, evaluation_type, materialized, target, dataset_id)
+        )
+        conn.commit()
+        cur.close()
+        conn.close()
+        return dataset_id
+    except Exception as e:
+        print(f"Error updating dataset: {e}")
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        finally:
+            conn.close()
+        return None

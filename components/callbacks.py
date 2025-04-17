@@ -1,7 +1,7 @@
 from dash import Input, Output, State, ALL, ctx, no_update
 from dash.exceptions import PreventUpdate
 import dash_bootstrap_components as dbc
-from utils.db import create_project, update_project
+from utils.db import create_project, update_project, get_datasets, create_dataset, update_dataset
 
 def register_callbacks(app):
     @app.callback(
@@ -38,20 +38,6 @@ def register_callbacks(app):
         new_active_states[pos] = True
         return new_active_states
 
-    @app.callback(
-        Output("test", "children"),
-        [Input({'type': 'list-group-item', 'index': ALL}, 'n_clicks'),
-         Input("tabs", "active_tab"),
-         Input("list-store", "data")],
-        State({"type": "list-group-item", "index": ALL}, "active"),
-        prevent_initial_call=True
-    )
-    def update_display(_, active_tab, store_data, active_states):    
-        if ctx.triggered_id == "tabs" and active_tab == "tab-display":
-            # Find the active item in the list
-            active_index = active_states.index(True)
-            return store_data['items'][active_index]['text']
-        return f"Clicked on Item {ctx.triggered_id.index}"
 
     @app.callback(
         [Output("list-group", "children"),
@@ -145,5 +131,185 @@ def register_callbacks(app):
             project.get('text', ''),
             project.get('description', ''),
             project.get('catalog', ''),
-            project.get('schema', '')
+        project.get('schema', '')
+        )
+    @app.callback(
+        [Output("dataset-list-group", "children"),
+         Output("dataset-store", "data")],
+        Input("tabs", "active_tab"),
+        Input({"type": "list-group-item", "index": ALL}, "active"),
+        Input("create-dataset-button", "n_clicks"),
+        Input("update-dataset-button", "n_clicks"),
+        State("list-store", "data"),
+        State("dataset-store", "data"),
+        State({"type": "dataset-group-item", "index": ALL}, "active"),
+        State({"type": "dataset-group-item", "index": ALL}, "id"),
+        State("dataset-name", "value"),
+        State("dataset-source-type", "value"),
+        State("dataset-evaluation-type", "value"),
+        State("dataset-materialized", "value"),
+        State("dataset-target", "value"),
+        prevent_initial_call=True
+    )
+    def manage_datasets(active_tab, proj_active, create_ds, update_ds,
+                        proj_store, ds_store, ds_active, ds_ids,
+                        name, source_type, eval_type, materialized, target):
+        trigger = ctx.triggered_id
+        # Load datasets when entering Display tab or changing project
+        if ((trigger == "tabs" or (isinstance(trigger, dict) and trigger.get("type") == "list-group-item"))
+            and active_tab == "tab-display"):
+            try:
+                pidx = proj_active.index(True)
+            except (ValueError, TypeError):
+                return no_update, no_update
+            proj = proj_store.get("items", [])[pidx]
+            pid = proj.get("id")
+            df = get_datasets(pid)
+            items = []
+            if not df.empty:
+                for rec in df.to_dict(orient="records"):
+                    items.append({
+                        "id": int(rec.get("id")),
+                        "text": rec.get("name"),
+                        "source_type": rec.get("source_type"),
+                        "evaluation_type": rec.get("evaluation_type"),
+                        "materialized": rec.get("materialized"),
+                        "target": rec.get("target")
+                    })
+            list_items = []
+            for i, it in enumerate(items):
+                list_items.append(
+                    dbc.ListGroupItem(
+                        it["text"],
+                        id={"type": "dataset-group-item", "index": it["id"]},
+                        action=True,
+                        active=(i == 0)
+                    )
+                )
+            if not list_items:
+                list_items = [
+                    dbc.ListGroupItem(
+                        "No datasets found.",
+                        id={"type": "dataset-group-item", "index": -1},
+                        disabled=True
+                    )
+                ]
+            return list_items, {"items": items}
+        # Create a new dataset
+        if trigger == "create-dataset-button" and create_ds:
+            try:
+                pidx = proj_active.index(True)
+            except (ValueError, TypeError):
+                return no_update, no_update
+            proj = proj_store.get("items", [])[pidx]
+            pid = proj.get("id")
+            dsid = create_dataset(pid, name, source_type, eval_type, bool(materialized), target)
+            if dsid is None:
+                return no_update, no_update
+            new_items = ds_store.get("items", []) + [{
+                "id": dsid,
+                "text": name,
+                "source_type": source_type,
+                "evaluation_type": eval_type,
+                "materialized": bool(materialized),
+                "target": target
+            }]
+            list_items = [
+                dbc.ListGroupItem(
+                    itm["text"],
+                    id={"type": "dataset-group-item", "index": itm["id"]},
+                    action=True,
+                    active=(itm["id"] == dsid)
+                ) for itm in new_items
+            ]
+            return list_items, {"items": new_items}
+        # Update existing dataset
+        if trigger == "update-dataset-button" and update_ds:
+            try:
+                didx = ds_active.index(True)
+            except (ValueError, TypeError):
+                return no_update, no_update
+            ds_it = ds_store.get("items", [])[didx]
+            dsid = ds_it.get("id")
+            upd = update_dataset(dsid, name, source_type, eval_type, bool(materialized), target)
+            if upd is None:
+                return no_update, no_update
+            new_items = ds_store.get("items", []).copy()
+            new_items[didx] = {
+                "id": dsid,
+                "text": name,
+                "source_type": source_type,
+                "evaluation_type": eval_type,
+                "materialized": bool(materialized),
+                "target": target
+            }
+            list_items = [
+                dbc.ListGroupItem(
+                    itm["text"],
+                    id={"type": "dataset-group-item", "index": itm["id"]},
+                    action=True,
+                    active=(itm["id"] == dsid)
+                ) for itm in new_items
+            ]
+            return list_items, {"items": new_items}
+        return no_update, no_update
+    # -- Dataset list item active-state callback --------------------------------
+    @app.callback(
+        Output({"type": "dataset-group-item", "index": ALL}, "active"),
+        Input({"type": "dataset-group-item", "index": ALL}, "n_clicks"),
+        State({"type": "dataset-group-item", "index": ALL}, "active"),
+        State({"type": "dataset-group-item", "index": ALL}, "id"),
+        prevent_initial_call=True
+    )
+    def update_dataset_active(n_clicks_list, active_states, ids):
+        # Only one dataset item active at a time
+        new_states = [False] * len(active_states)
+        triggered = ctx.triggered_id
+        # Extract index of clicked dataset
+        if isinstance(triggered, dict):
+            clicked = triggered.get('index')
+        else:
+            clicked = getattr(triggered, 'index', None)
+        # Map ids to indices
+        id_list = []
+        for id_obj in ids:
+            if isinstance(id_obj, dict):
+                id_list.append(id_obj.get('index'))
+            else:
+                id_list.append(getattr(id_obj, 'index', None))
+        try:
+            pos = id_list.index(clicked)
+        except (ValueError, TypeError):
+            return active_states
+        new_states[pos] = True
+        return new_states
+
+    # -- Dataset form population callback --------------------------------------
+    @app.callback(
+        Output("dataset-name", "value"),
+        Output("dataset-source-type", "value"),
+        Output("dataset-evaluation-type", "value"),
+        Output("dataset-materialized", "value"),
+        Output("dataset-target", "value"),
+        Input({"type": "dataset-group-item", "index": ALL}, "active"),
+        State("dataset-store", "data"),
+        prevent_initial_call=True
+    )
+    def populate_dataset_form(active_states, ds_store):
+        # Populate form inputs for selected dataset
+        if not ds_store or not active_states:
+            raise PreventUpdate
+        try:
+            idx = active_states.index(True)
+        except ValueError:
+            raise PreventUpdate
+        ds = ds_store.get('items', [])[idx]
+        # Checklist expects list of values
+        mat = [True] if ds.get('materialized') else []
+        return (
+            ds.get('text', ''),
+            ds.get('source_type', ''),
+            ds.get('evaluation_type', ''),
+            mat,
+            ds.get('target', '')
         )
