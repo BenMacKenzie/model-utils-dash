@@ -71,7 +71,8 @@ def create_list_tab():
         ], className="mb-3"),
         html.Div([
             dbc.Button("Create Project", id="create-project-button", color="success", className="me-2"),
-            dbc.Button("Update Project", id="update-project-button", color="primary"),
+            dbc.Button("Update Project", id="update-project-button", color="primary", className="me-2"),
+            dbc.Button("Delete Project", id="delete-project-button", color="danger"),
         ], className="mt-3")
     ])
     # Layout: project list and creation form side by side

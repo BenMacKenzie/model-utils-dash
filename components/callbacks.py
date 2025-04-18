@@ -1,7 +1,7 @@
 from dash import Input, Output, State, ALL, ctx, no_update
 from dash.exceptions import PreventUpdate
 import dash_bootstrap_components as dbc
-from utils.db import create_project, update_project, get_projects, get_datasets, create_dataset, update_dataset
+from utils.db import create_project, update_project, get_projects, get_datasets, create_dataset, update_dataset, delete_project
 
 def register_callbacks(app):
 
@@ -500,4 +500,41 @@ def register_callbacks(app):
             )
         # Other triggers: no update
         raise PreventUpdate
+    
+    @app.callback(
+        Output("list-store", "data", allow_duplicate=True),
+        Input("delete-project-button", "n_clicks"),
+        State("list-store", "data"),
+        State({"type": "list-group-item", "index": ALL}, "active"),
+        prevent_initial_call=True
+    )
+    def delete_project_callback(delete_clicks, store_data, active_states):
+        print("delete_project_callback")
+        if not store_data or not active_states:
+            raise PreventUpdate
+        try:
+            idx = active_states.index(True)
+        except ValueError:
+            raise PreventUpdate
+        project_item = store_data.get('items', [])[idx]
+        project_id = project_item.get('id')
+        # Delete project and its datasets
+        success = delete_project(project_id)
+        if not success:
+            return no_update
+        # Refresh list
+        df = get_projects()
+        items = []
+        if not df.empty:
+            for rec in df.to_dict(orient='records'):
+                items.append({
+                    'id': int(rec.get('id')),
+                    'text': rec.get('name'),
+                    'description': rec.get('description'),
+                    'catalog': rec.get('catalog'),
+                    'schema': rec.get('schema')
+                })
+        # Set active project to first item if available, otherwise None
+        active_project_id = items[0]['id'] if items else None
+        return {'items': items, "active_project_id": active_project_id}
     

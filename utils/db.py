@@ -229,3 +229,37 @@ def update_dataset(dataset_id, name, source_type,
         finally:
             conn.close()
         return None
+
+def delete_project(project_id):
+    """
+    Deletes a project and all its associated datasets from the database.
+    Returns True if successful, False otherwise.
+    """
+    conn = get_db_connection()
+    if conn is None:
+        return False
+    try:
+        cur = conn.cursor()
+        # First delete all datasets associated with the project
+        cur.execute(
+            "DELETE FROM datasets WHERE project_id = %s;",
+            (project_id,)
+        )
+        # Then delete the project
+        cur.execute(
+            "DELETE FROM projects WHERE id = %s;",
+            (project_id,)
+        )
+        conn.commit()
+        cur.close()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"Error deleting project: {e}")
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        finally:
+            conn.close()
+        return False
