@@ -50,8 +50,10 @@ def create_project(name, description, catalog, schema):
     """
     Inserts a new project into the database and returns the new project ID.
     """
+    print(f"Attempting to create project with name: {name}")  # Debug log
     conn = get_db_connection()
     if conn is None:
+        print("Failed to establish database connection")  # Debug log
         return None
     try:
         cur = conn.cursor()
@@ -65,12 +67,13 @@ def create_project(name, description, catalog, schema):
             (name, description, catalog, schema)
         )
         project_id = cur.fetchone()[0]
+        print(f"Successfully created project with ID: {project_id}")  # Debug log
         conn.commit()
         cur.close()
         conn.close()
         return project_id
     except Exception as e:
-        print(f"Error creating project: {e}")
+        print(f"Error creating project: {e}")  # Debug log
         try:
             conn.rollback()
         except Exception:
@@ -118,26 +121,46 @@ def get_datasets(project_id):
     """Fetches all datasets for a given project."""
 
     
+    # Fetch all relevant dataset fields except target and created_at
     return fetch_data(
-        "SELECT id, name, source_type, evaluation_type, materialized, target"
+        "SELECT id, name, source_type, eol_definition, feature_lookup_definition, source_table,"
+        " evaluation_type, percentage, eval_table_name, split_time_column, materialized,"
+        " training_table_name, eval_table_name_generated"
         " FROM datasets WHERE project_id = %s ORDER BY name ASC;",
         params=(project_id,)
     )
 
-def create_dataset(project_id, name, source_type, evaluation_type, materialized, target):
-    """Inserts a new dataset for the given project and returns the new dataset ID."""
+def create_dataset(project_id, name, source_type,
+                   eol_definition, feature_lookup_definition,
+                   source_table, evaluation_type, percentage,
+                   eval_table_name, split_time_column,
+                   materialized, training_table_name,
+                   eval_table_name_generated):
+    """
+    Inserts a new dataset for the given project and returns the new dataset ID.
+    """
     conn = get_db_connection()
     if conn is None:
         return None
     try:
         cur = conn.cursor()
+        # Insert new dataset and return its ID
         cur.execute(
             """
-            INSERT INTO datasets (project_id, name, source_type, evaluation_type, materialized, target)
-            VALUES (%s, %s, %s, %s, %s, %s)
+            INSERT INTO datasets (
+                project_id, name, source_type, eol_definition,
+                feature_lookup_definition, source_table, evaluation_type,
+                percentage, eval_table_name, split_time_column,
+                materialized, training_table_name, eval_table_name_generated
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id;
             """,
-            (project_id, name, source_type, evaluation_type, materialized, target)
+            (
+                project_id, name, source_type, eol_definition,
+                feature_lookup_definition, source_table, evaluation_type,
+                percentage, eval_table_name, split_time_column,
+                materialized, training_table_name, eval_table_name_generated
+            )
         )
         dataset_id = cur.fetchone()[0]
         conn.commit()
@@ -154,24 +177,44 @@ def create_dataset(project_id, name, source_type, evaluation_type, materialized,
             conn.close()
         return None
 
-def update_dataset(dataset_id, name, source_type, evaluation_type, materialized, target):
+def update_dataset(dataset_id, name, source_type,
+                   eol_definition, feature_lookup_definition,
+                   source_table, evaluation_type, percentage,
+                   eval_table_name, split_time_column,
+                   materialized, training_table_name,
+                   eval_table_name_generated):
     """Updates an existing dataset and returns the dataset ID if successful."""
     conn = get_db_connection()
     if conn is None:
         return None
     try:
         cur = conn.cursor()
+        # Update dataset record
         cur.execute(
             """
-            UPDATE datasets
-            SET name = %s,
+            UPDATE datasets SET
+                name = %s,
                 source_type = %s,
+                eol_definition = %s,
+                feature_lookup_definition = %s,
+                source_table = %s,
                 evaluation_type = %s,
+                percentage = %s,
+                eval_table_name = %s,
+                split_time_column = %s,
                 materialized = %s,
-                target = %s
+                training_table_name = %s,
+                eval_table_name_generated = %s
             WHERE id = %s;
             """,
-            (name, source_type, evaluation_type, materialized, target, dataset_id)
+            (
+                name, source_type, eol_definition,
+                feature_lookup_definition, source_table,
+                evaluation_type, percentage, eval_table_name,
+                split_time_column, materialized,
+                training_table_name, eval_table_name_generated,
+                dataset_id
+            )
         )
         conn.commit()
         cur.close()

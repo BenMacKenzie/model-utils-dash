@@ -3,14 +3,17 @@ from dash import Dash, html
 from components.tabs.list_tab import create_list_tab
 from components.tabs.display_tab import create_display_tab
 from components.callbacks import register_callbacks
-
+from dash import dcc
 app = Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
+
+
 
 # Create tabs
 list_tab, store = create_list_tab()
 display_tab = create_display_tab()
 
 app.layout = dbc.Container([
+    dcc.Location(id='url'),
     store,
     dbc.Tabs([
         list_tab,

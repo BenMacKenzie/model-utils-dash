@@ -4,6 +4,9 @@ from utils.db import get_projects
 
 def create_list_tab():
     # Retrieve projects from the database
+
+
+   
     df = get_projects()
     # Convert to items for storage and display
     items = []
@@ -21,8 +24,9 @@ def create_list_tab():
             for rec in records
         ]
 
-    # Store component to maintain the list of projects
-    store = dcc.Store(id='list-store', data={'items': items})
+    active_project_id = items[0]['id'] if items else None# Store component to maintain the list of projects
+    store = dcc.Store(id='list-store', data={'items': items, "active_project_id": active_project_id})
+
 
     # Create list group items
     list_items = []
