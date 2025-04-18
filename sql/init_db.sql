@@ -19,7 +19,7 @@ CREATE TABLE datasets (
     source_type VARCHAR(64) NOT NULL CHECK (source_type IN ('static_table', 'dynamic_table', 'feature_lookup')),
     eol_definition TEXT[] DEFAULT NULL,
     feature_lookup_definition TEXT[] DEFAULT NULL,
-    source_table TEXT[] DEFAULT NULL,
+    source_table  VARCHAR(255) DEFAULT NULL,
     timestamp_col VARCHAR(255) DEFAULT NULL,
     evaluation_type VARCHAR(64) NOT NULL CHECK (evaluation_type IN ('random', 'table', 'timestamp')),
     percentage NUMERIC DEFAULT NULL,
