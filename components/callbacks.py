@@ -33,48 +33,6 @@ def register_callbacks(app):
         print("items", items)
         return {'items': items, "active_project_id": active_project_id  }
 
-
-    @app.callback(
-        Output({"type": "list-group-item", "index": ALL}, "active"),
-        Output("list-store", "data"),
-        Input({'type': 'list-group-item', 'index': ALL}, 'n_clicks'),
-        State({"type": "list-group-item", "index": ALL}, "active"),
-        State({"type": "list-group-item", "index": ALL}, "id"),
-        State("list-store", "data"),
-        prevent_initial_call=True
-    )
-    def update_active_states(_, active_states, ids, store_data):
-        # Create a new list of active states where only the clicked item is active
-
-        print("update_active_states")
-        new_active_states = [False] * len(active_states)
-        # Determine which item was clicked via its id mapping
-        triggered = ctx.triggered_id
-        # Extract the 'index' value from the triggered id
-        if isinstance(triggered, dict):
-            clicked_value = triggered.get('index')
-        else:
-            clicked_value = getattr(triggered, 'index', None)
-        # Build a list of index values for all items (in order)
-        id_list = []
-        for id_obj in ids:
-            if isinstance(id_obj, dict):
-                id_list.append(id_obj.get('index'))
-            else:
-                id_list.append(getattr(id_obj, 'index', None))
-        # Find the position of the clicked item in the list
-        try:
-            pos = id_list.index(clicked_value)
-        except (ValueError, TypeError):
-            # If not found, do not change active states
-            return active_states
-        # Activate only the clicked item
-        new_active_states[pos] = True
-        items = (store_data.get('items', []) or []) 
-        active_project_id = items[pos]['id']
-        return new_active_states, {'items': items, "active_project_id": active_project_id}
-    
-    
     @app.callback(
         Output("list-group", "children", allow_duplicate=True),
         Input("list-store", "data"),
@@ -96,6 +54,19 @@ def register_callbacks(app):
        
         return list_items
 
+
+    @app.callback(
+        Output("list-store", "data"),
+        Input({'type': 'list-group-item', 'index': ALL}, 'n_clicks'),
+        State("list-store", "data"),
+        prevent_initial_call=True
+    )
+    def select_project_callback(_, store_data):
+        project_id = ctx.triggered_id["index"]
+        items = (store_data.get('items', []) or []) 
+        return {'items': items, "active_project_id": project_id}
+     
+   
 
 
     @app.callback(
@@ -159,15 +130,19 @@ def register_callbacks(app):
                     'catalog': rec.get('catalog'),
                     'schema': rec.get('schema')
                 })
-        # list_items = [
-        #     dbc.ListGroupItem(
-        #         itm['text'],
-        #         id={"type": "list-group-item", "index": itm['id']},
-        #         action=True,
-        #         active=(itm['id'] == project_id)
-        #     ) for itm in items
-        # ]
+       
         return {'items': items, "active_project_id": project_id}
+    
+    def get_project_from_store(store_data, project_id):
+        """
+        Get a project record from the store data by its ID.
+        Returns the project dictionary if found, None otherwise.
+        """
+        items = store_data.get('items', [])
+        for item in items:
+            if item['id'] == project_id:
+                return item
+        return None
 
     @app.callback(
         Output("project-name", "value"),
@@ -180,20 +155,22 @@ def register_callbacks(app):
     )
     def populate_form(active_states, store_data):
         # Populate the form inputs based on the selected project
-        print("populate_form")
+        print("active_states", active_states)
         if not store_data or not active_states:
             raise PreventUpdate
         try:
             idx = active_states.index(True)
         except ValueError:
             raise PreventUpdate
-        project = store_data.get('items', [])[idx]
+        project = get_project_from_store(store_data, store_data.get('active_project_id'))
+        #project = store_data.get('items', [])[idx]
         return (
             project.get('text', ''),
             project.get('description', ''),
             project.get('catalog', ''),
         project.get('schema', '')
         )
+
     @app.callback(
         [Output("dataset-list-group", "children"),
          Output("dataset-store", "data")],
