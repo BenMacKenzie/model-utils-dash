@@ -1,7 +1,11 @@
 import dash_bootstrap_components as dbc
 from dash import Dash, html
-from components.tabs.list_tab import create_list_tab
-from components.tabs.display_tab import create_display_tab
+from dotenv import load_dotenv
+
+load_dotenv()
+
+from components.tabs.project_tab import create_project_tab
+from components.tabs.dataset_tab import create_dataset_tab
 from components.callbacks import register_callbacks
 from dash import dcc
 app = Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
@@ -9,18 +13,18 @@ app = Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
 
 
 # Create tabs
-list_tab, store = create_list_tab()
-display_tab = create_display_tab()
+project_tab, store = create_project_tab()
+dataset_tab = create_dataset_tab()
 
 app.layout = dbc.Container([
     dcc.Location(id='url'),
     store,
     dbc.Tabs([
-        list_tab,
-        display_tab
+        project_tab,
+        dataset_tab
     ],
     id="tabs",
-    active_tab="tab-list"
+    active_tab="tab-project"
     )
 ])
 

@@ -1,7 +1,7 @@
 import dash_bootstrap_components as dbc
 from dash import html, dcc
 
-def create_display_tab():
+def create_dataset_tab():
     # Store for datasets of the selected project
     store = dcc.Store(id='dataset-store', data={'items': []}, storage_type='session')
 
@@ -53,6 +53,12 @@ def create_display_tab():
             dbc.Label("Source Table", html_for="dataset-source-table"),
             dbc.Textarea(id="dataset-source-table", placeholder="Enter source table(s) (comma-separated)"),
         ], id="div-source-table", className="mb-3"),
+
+        # Timestamp Column (only for dynamic_table)
+        html.Div([
+            dbc.Label("Timestamp Column", html_for="dataset-timestamp-col"),
+            dbc.Input(type="text", id="dataset-timestamp-col", placeholder="Enter timestamp column name"),
+        ], id="div-timestamp-col", className="mb-3", style={"display": "none"}),
 
         # Evaluation Type selection
         html.Div([
@@ -113,7 +119,9 @@ def create_display_tab():
         # Action buttons
         html.Div([
             dbc.Button("Create Dataset", id="create-dataset-button", color="success", className="me-2"),
-            dbc.Button("Update Dataset", id="update-dataset-button", color="primary")
+            dbc.Button("Update Dataset", id="update-dataset-button", color="primary", className="me-2"),
+            dbc.Button("Delete Dataset", id="delete-dataset-button", color="danger", className="me-2"),
+            dbc.Button("Materialize Dataset", id="materialize-dataset-button", color="info")
         ], className="mt-3")
     ])
 
@@ -125,4 +133,4 @@ def create_display_tab():
             dbc.Col(form, width=6)
         ])
     ]
-    return dbc.Tab(content, label="Datasets", tab_id="tab-display")
+    return dbc.Tab(content, label="Datasets", tab_id="tab-dataset")

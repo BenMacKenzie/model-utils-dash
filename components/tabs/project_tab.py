@@ -2,7 +2,7 @@ import dash_bootstrap_components as dbc
 from dash import html, dcc
 from utils.db import get_projects
 
-def create_list_tab():
+def create_project_tab():
     # Retrieve projects from the database
 
 
@@ -81,4 +81,4 @@ def create_list_tab():
             dbc.Col(listgroup, width=8),
             dbc.Col(create_form, width=4)
         ])
-    ], label="Projects", tab_id="tab-list"), store
+    ], label="Projects", tab_id="tab-project"), store

@@ -124,7 +124,7 @@ def get_datasets(project_id):
     # Fetch all relevant dataset fields except target and created_at
     return fetch_data(
         "SELECT id, name, source_type, eol_definition, feature_lookup_definition, source_table,"
-        " evaluation_type, percentage, eval_table_name, split_time_column, materialized,"
+        " timestamp_col, evaluation_type, percentage, eval_table_name, split_time_column, materialized,"
         " training_table_name, eval_table_name_generated"
         " FROM datasets WHERE project_id = %s ORDER BY name ASC;",
         params=(project_id,)
@@ -133,7 +133,7 @@ def get_datasets(project_id):
 def create_dataset(project_id, name, source_type,
                    eol_definition, feature_lookup_definition,
                    source_table, evaluation_type, percentage,
-                   eval_table_name, split_time_column,
+                   eval_table_name, split_time_column, timestamp_col,
                    materialized, training_table_name,
                    eval_table_name_generated):
     """
@@ -150,15 +150,16 @@ def create_dataset(project_id, name, source_type,
             INSERT INTO datasets (
                 project_id, name, source_type, eol_definition,
                 feature_lookup_definition, source_table, evaluation_type,
-                percentage, eval_table_name, split_time_column,
+                percentage, eval_table_name, split_time_column, timestamp_col,
                 materialized, training_table_name, eval_table_name_generated
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id;
             """,
             (
                 project_id, name, source_type, eol_definition,
                 feature_lookup_definition, source_table, evaluation_type,
                 percentage, eval_table_name, split_time_column,
+                timestamp_col,
                 materialized, training_table_name, eval_table_name_generated
             )
         )
@@ -180,7 +181,7 @@ def create_dataset(project_id, name, source_type,
 def update_dataset(dataset_id, name, source_type,
                    eol_definition, feature_lookup_definition,
                    source_table, evaluation_type, percentage,
-                   eval_table_name, split_time_column,
+                   eval_table_name, split_time_column, timestamp_col,
                    materialized, training_table_name,
                    eval_table_name_generated):
     """Updates an existing dataset and returns the dataset ID if successful."""
@@ -202,6 +203,7 @@ def update_dataset(dataset_id, name, source_type,
                 percentage = %s,
                 eval_table_name = %s,
                 split_time_column = %s,
+                timestamp_col = %s,
                 materialized = %s,
                 training_table_name = %s,
                 eval_table_name_generated = %s
@@ -211,8 +213,8 @@ def update_dataset(dataset_id, name, source_type,
                 name, source_type, eol_definition,
                 feature_lookup_definition, source_table,
                 evaluation_type, percentage, eval_table_name,
-                split_time_column, materialized,
-                training_table_name, eval_table_name_generated,
+                split_time_column, timestamp_col,
+                materialized, training_table_name, eval_table_name_generated,
                 dataset_id
             )
         )
@@ -229,6 +231,33 @@ def update_dataset(dataset_id, name, source_type,
         finally:
             conn.close()
         return None
+
+def delete_dataset(dataset_id):
+    """Deletes a specific dataset from the database.
+    Returns True if successful, False otherwise.
+    """
+    conn = get_db_connection()
+    if conn is None:
+        return False
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "DELETE FROM datasets WHERE id = %s;",
+            (dataset_id,)
+        )
+        conn.commit()
+        cur.close()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"Error deleting dataset {dataset_id}: {e}")
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        finally:
+            conn.close()
+        return False
 
 def delete_project(project_id):
     """
