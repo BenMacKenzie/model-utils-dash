@@ -1,9 +1,35 @@
-from dash import Input, Output, State, ALL, ctx, no_update
+import dash
+from dash import Input, Output, State, ALL, ctx, no_update, html
 from dash.exceptions import PreventUpdate
 import dash_bootstrap_components as dbc
 import time # Added for timestamp generation
-from utils.db import create_project, update_project, get_projects, get_datasets, create_dataset, update_dataset, delete_project, delete_dataset
-from utils.databricks import get_databricks_connection, execute_sql # Import databricks utils
+import os # <-- Add os import
+from utils.db import (
+    create_project, update_project, get_projects, get_datasets, create_dataset, 
+    update_dataset, delete_project, delete_dataset,
+    get_training_job, create_training_job_record, update_training_job_id,
+    get_dataset_details, get_project_git_details, get_dataset_name_by_job_id
+)
+from utils.databricks_connect import get_databricks_connection, execute_sql # Renamed import
+# --- Add imports for training and JSON --- #
+import json
+from utils.training import create_training_job as create_databricks_job, run_training_job
+# --- Add MLflow import --- #
+from utils.mlflow_utils import get_experiment_runs # Ensure correct function is imported
+# --- End Add imports --- #
+
+# --- Helper function for datetime formatting (optional) --- #
+from datetime import datetime
+def format_timestamp(ts):
+    if ts is None:
+        return "N/A"
+    # Convert milliseconds timestamp (common in MLflow) to datetime
+    try:
+        dt_object = datetime.fromtimestamp(ts / 1000)
+        return dt_object.strftime("%Y-%m-%d %H:%M:%S")
+    except TypeError:
+        return str(ts) # Fallback if it's not a standard timestamp
+# --- End Helper --- #
 
 def register_callbacks(app):
 
@@ -203,6 +229,7 @@ def register_callbacks(app):
         State("dataset-training-table-name", "value"),
         State("dataset-eval-table-generated", "value"),
         State("dataset-materialized", "value"),
+        State("dataset-target", "value"),
         prevent_initial_call=True
     )
     def manage_datasets(active_tab, proj_active, create_ds, update_ds,
@@ -213,7 +240,7 @@ def register_callbacks(app):
                         eval_type, percentage,
                         eval_table_name, split_time_column,
                         training_table_name, eval_table_generated,
-                        materialized):
+                        materialized, target):
         trigger = ctx.triggered_id
         # Convert comma-separated string fields into Python lists for Postgres array columns
         def _to_list(val):
@@ -250,7 +277,8 @@ def register_callbacks(app):
                     "split_time_column": rec.get("split_time_column"),
                     "materialized": rec.get("materialized"),
                     "training_table_name": rec.get("training_table_name"),
-                    "eval_table_name_generated": rec.get("eval_table_name_generated")
+                    "eval_table_name_generated": rec.get("eval_table_name_generated"),
+                    "target": rec.get("target")
                 })
             list_items = []
             for i, it in enumerate(items):
@@ -294,7 +322,8 @@ def register_callbacks(app):
                 None, # timestamp_col (Correct position)
                 False, # materialized (Correct position)
                 None, # training_table_name
-                None  # eval_table_name_generated
+                None,  # eval_table_name_generated
+                "" # <-- Add empty target for new dataset
             )
             if dsid is None:
                 return no_update, no_update
@@ -312,7 +341,8 @@ def register_callbacks(app):
                 "split_time_column": "",
                 "materialized": False,
                 "training_table_name": "",
-                "eval_table_name_generated": ""
+                "eval_table_name_generated": "",
+                "target": "" # <-- Add empty target to store item
             }]
             # Render list without selecting any item (form cleared separately)
             list_items = [
@@ -358,7 +388,8 @@ def register_callbacks(app):
                 timestamp_col,
                 bool(materialized),
                 training_table_name,
-                eval_table_generated
+                eval_table_generated,
+                target
             )
             if upd is None:
                 return no_update, no_update
@@ -381,7 +412,8 @@ def register_callbacks(app):
                         "split_time_column": rec.get("split_time_column"),
                         "materialized": rec.get("materialized"),
                         "training_table_name": rec.get("training_table_name"),
-                        "eval_table_name_generated": rec.get("eval_table_name_generated")
+                        "eval_table_name_generated": rec.get("eval_table_name_generated"),
+                        "target": rec.get("target")
                     })
             list_items = [
                 dbc.ListGroupItem(
@@ -443,7 +475,8 @@ def register_callbacks(app):
                         "split_time_column": rec.get("split_time_column"),
                         "materialized": rec.get("materialized"),
                         "training_table_name": rec.get("training_table_name"),
-                        "eval_table_name_generated": rec.get("eval_table_name_generated")
+                        "eval_table_name_generated": rec.get("eval_table_name_generated"),
+                        "target": rec.get("target")
                     })
             list_items = []
             for i, itm in enumerate(items):
@@ -517,6 +550,7 @@ def register_callbacks(app):
         Output("dataset-eval-table-generated", "value"),
         Output("dataset-materialized", "value"),
         Output("materialize-dataset-button", "disabled"),
+        Output("dataset-target", "value"),
         Input({"type": "dataset-group-item", "index": ALL}, "active"),
         Input("create-dataset-button", "n_clicks"),
         State("dataset-store", "data"),
@@ -541,7 +575,8 @@ def register_callbacks(app):
                 "",              # training table name
                 "",              # eval table generated
                 [],                # materialized
-                False             # materialize button disabled
+                False,             # materialize button disabled
+                ""               # <-- Clear target on create
             )
         # Selection: populate from store, set button disabled based on materialized state
         if isinstance(trig, dict) and trig.get('type') == 'dataset-group-item':
@@ -572,7 +607,8 @@ def register_callbacks(app):
                 ds.get('training_table_name', ''),
                 ds.get('eval_table_name_generated', ''),
                 mat_checklist_value,
-                materialized_status  # Set button disabled state
+                materialized_status,  # Set button disabled state
+                ds.get('target', '') # <-- Populate target on selection
             )
         # Other triggers: no update
         raise PreventUpdate
@@ -884,7 +920,8 @@ def register_callbacks(app):
             timestamp_col=timestamp_col,
             materialized=True,
             training_table_name=training_table_name,
-            eval_table_name_generated=eval_table_name_generated
+            eval_table_name_generated=eval_table_name_generated,
+            target=target
         )
 
         if updated is None:
@@ -902,10 +939,363 @@ def register_callbacks(app):
                 item['materialized'] = True
                 item['training_table_name'] = training_table_name
                 item['eval_table_name_generated'] = eval_table_name_generated
+                item['target'] = target
             updated_items.append(item)
 
         # Update form fields and checklist
         new_materialized_value = [True] # Checklist expects a list
 
         return ({'items': updated_items}, training_table_name, eval_table_name_generated, new_materialized_value)
+    
+    @app.callback(
+        Output("train-selected-dataset-name", "children"),
+        Output("train-job-id-display", "children"),
+        # Trigger on dropdown change instead of active list item
+        Input("train-dataset-dropdown", "value"), 
+        # Keep project store state to get project ID for job lookup
+        State("list-store", "data"),
+        prevent_initial_call=True
+    )
+    def update_train_tab_dataset_display(selected_ds_id, proj_store):
+        """Update the displayed dataset name and Job ID on the Train tab based on dropdown selection."""
+        # Removed active_tab, ds_active_states, ds_store args
+
+        if not selected_ds_id or not proj_store:
+            # If no dataset is selected in dropdown or project store is empty
+            return "No Dataset Selected", "Job ID: -"
+
+        try:
+            # Get dataset name using the ID from the dropdown
+            dataset_details = get_dataset_details(selected_ds_id)
+            selected_ds_name = dataset_details.get('name', 'Error Loading Name') if dataset_details else "Dataset Not Found"
+            
+            project_id = proj_store.get("active_project_id")
+
+            dataset_name_text = f"Dataset: {selected_ds_name} (ID: {selected_ds_id})"
+            job_id_text = "Job ID: Not Created Yet"
+
+            if project_id:
+                training_record = get_training_job(project_id, selected_ds_id)
+                if training_record and training_record.get('job_id'):
+                    job_id_text = f"Job ID: {training_record['job_id']}"
+                elif training_record:
+                     job_id_text = "Job ID: Created in DB, not yet linked to Databricks Job"
+
+            return dataset_name_text, job_id_text
+        except Exception as e:
+            print(f"Error in update_train_tab_dataset_display: {e}")
+            return "Error Loading Info", "Job ID: Error"
+
+
+    @app.callback(
+        Output("train-status-output", "children"),
+        Input("train-run-button", "n_clicks"),
+        State("list-store", "data"), # Get project ID
+        # State("dataset-store", "data"), # No longer needed for finding selected ID
+        # State({"type": "dataset-group-item", "index": ALL}, "active"), # Use dropdown value instead
+        State("train-dataset-dropdown", "value"), # Get selected dataset ID from dropdown
+        State("train-parameters-input", "value"), # Get user-provided params
+        prevent_initial_call=True
+    )
+    def handle_train_button_click(n_clicks, proj_store, selected_ds_id, params_json_str):
+        if n_clicks == 0:
+            raise PreventUpdate
+
+        # --- 1. Get Selected Project and Dataset IDs --- #
+        project_id = proj_store.get("active_project_id")
+        # selected_ds_id is now directly from the dropdown state
+        
+        # --- Remove Debugging related to ds_store and active states --- #
+        print("--- Debug: handle_train_button_click ---")
+        print(f"Project ID: {project_id}")
+        print(f"Selected Dataset ID from Dropdown: {selected_ds_id}")
+        # print(f"Dataset Active States: {ds_active_states}") # Removed
+        # ds_items_count = len(ds_store.get("items", [])) # Removed
+        # print(f"Items in dataset-store: {ds_items_count}") # Removed
+        # --- End Debugging Removal --- #
+
+        # --- Remove logic for finding selected dataset via active state --- #
+        # try:
+        #     ds_idx = ds_active_states.index(True)
+        #     # --- Add More Debugging --- #
+        #     print(f"Found active dataset index: {ds_idx}")
+        #     # --- End More Debugging --- #
+        #     selected_ds_id = ds_store.get("items", [])[ds_idx]["id"]
+        #     # --- Add More Debugging --- #
+        #     print(f"Retrieved selected_ds_id: {selected_ds_id}")
+        #     # --- End More Debugging --- #
+        # except (ValueError, IndexError, TypeError) as e:
+        #     # --- Add Error Debugging --- #
+        #     print(f"Error finding selected dataset: {e}") 
+        #     print("----------------------------------------")
+        #     # --- End Error Debugging --- #
+        #     return dbc.Alert("Error: Please select a dataset first.", color="danger")
+        # --- End Removal --- #
+
+        # --- Add Validation for Dropdown Selection --- #
+        if not selected_ds_id:
+             return dbc.Alert("Error: Please select a dataset from the dropdown.", color="danger")
+        # --- End Validation --- #
+        
+        print("----------------------------------------")
+
+        if not project_id: # selected_ds_id already checked
+            return dbc.Alert("Error: Project not selected properly.", color="danger")
+
+        # --- 2. Parse Parameters --- #
+        try:
+            parameters = json.loads(params_json_str or '{}') # Default to empty dict if no input
+        except json.JSONDecodeError as e:
+            return dbc.Alert(f"Error parsing parameters JSON: {e}", color="danger")
+
+        # --- 3. Check Existing Training Job Record --- #
+        training_record = get_training_job(project_id, selected_ds_id)
+        db_job_id = None
+        training_record_id = None
+
+        if training_record:
+            training_record_id = training_record.get('id')
+            db_job_id = training_record.get('job_id')
+            print(f"Found existing training record ID: {training_record_id} with Job ID: {db_job_id}")
+        else:
+            print("No existing training record found, will create one.")
+
+        # --- 4. Get Job Details (Dataset Target, Git Info, etc.) --- #
+        dataset_details = get_dataset_details(selected_ds_id)
+        project_details = get_project_from_store(proj_store, project_id)
+        git_details = get_project_git_details(project_id) # Uses placeholder/env vars for now
+
+        if not dataset_details or not project_details:
+            return dbc.Alert("Error: Could not retrieve necessary project/dataset details.", color="danger")
+
+        target_variable = dataset_details.get('target')
+        training_table = dataset_details.get('training_table_name')
+        dataset_name = dataset_details.get('name')
+        project_name = project_details.get('text')
+
+        if not training_table:
+             return dbc.Alert(f"Error: Dataset '{dataset_name}' has not been materialized yet (no training table name).", color="danger")
+
+        # --- 5. Logic: Run Existing or Create New Job --- #
+        try:
+            if db_job_id:
+                # --- 5a. Run Existing Job --- #
+                print(f"Running existing Databricks Job ID: {db_job_id}")
+                run_info = run_training_job(db_job_id)
+                return dbc.Alert(f"Started existing job {db_job_id}. Run ID: {run_info.run_id}", color="info")
+            else:
+                # --- 5b. Create New Job --- # 
+                job_name = f"{project_name}_{dataset_name}"
+                # --- Use project name for experiment path --- #
+                experiment_name = project_name
+                # --- End change --- #
+                print(f"Creating new Databricks Job: {job_name}")
+                
+                # Prepare base parameters for the notebook task
+                base_params = {
+                    "experiment_name": experiment_name,
+                    "target": target_variable,
+                    "table_name": training_table
+                }
+                # Merge user parameters, user params take precedence
+                base_params.update(parameters) 
+
+                new_job = create_databricks_job(
+                    job_name=job_name,
+                    experiment_name=experiment_name,
+                    target=target_variable,
+                    table_name=training_table,
+                    git_url=git_details['git_url'],
+                    git_provider=git_details['git_provider'],
+                    git_branch=git_details['git_branch'],
+                    notebook_path=git_details['notebook_path']
+                    # Pass merged parameters to the notebook task
+                    # This assumes create_training_job is updated or handles extra kwargs
+                    # to pass them to the notebook_task.base_parameters
+                    # --- Modification needed in utils/training.py --- #
+                    # **base_params # This line needs adjustment based on function signature
+                )
+                new_job_id = new_job.job_id
+                print(f"Created Databricks Job ID: {new_job_id}")
+
+                # --- 5c. Update DB --- #
+                if training_record_id:
+                    # Update existing record that didn't have a job_id
+                    success = update_training_job_id(training_record_id, new_job_id)
+                    print(f"Updated existing training record {training_record_id} with job ID {new_job_id}: {success}")
+                else:
+                    # Create new training record
+                    training_record_id = create_training_job_record(project_id, selected_ds_id, json.dumps(parameters))
+                    if training_record_id:
+                         success = update_training_job_id(training_record_id, new_job_id)
+                         print(f"Created new training record {training_record_id}, updated with job ID {new_job_id}: {success}")
+                    else:
+                         print("Failed to create training record in DB.")
+                         # Decide how to handle this - maybe don't run the job?
+
+                if not training_record_id or not success:
+                     return dbc.Alert("Error: Failed to update database with new Job ID. Job was created but not run.", color="warning")
+
+                # --- 5d. Run New Job --- #
+                print(f"Running newly created Databricks Job ID: {new_job_id}")
+                run_info = run_training_job(new_job_id)
+                return dbc.Alert(f"Created job {new_job_id} and started run. Run ID: {run_info.run_id}", color="success")
+
+        except Exception as e:
+            import traceback
+            print(f"Error during training job creation/run: {traceback.format_exc()}")
+            return dbc.Alert(f"An error occurred: {e}", color="danger")
+    
+    @app.callback(
+        Output("train-mlflow-runs-list", "children"),
+        Input("tabs", "active_tab"),
+        Input("list-store", "data"), # Trigger when project list/selection changes
+        prevent_initial_call=True
+    )
+    def update_mlflow_runs_list(active_tab, proj_store):
+        if active_tab != 'tab-train' or not proj_store:
+            raise PreventUpdate
+
+        project_id = proj_store.get('active_project_id')
+        if not project_id:
+             # Return a row indicating selection needed
+            return html.Tr(html.Td("Select a project to view MLflow runs.", colSpan=4))
+
+        project_details = get_project_from_store(proj_store, project_id)
+        if not project_details:
+            print(f"Error: Could not find details for project ID {project_id} in store.")
+             # Return error row
+            return html.Tr(html.Td("Error retrieving project details.", colSpan=4))
+
+        base_experiment_name = project_details.get('text')
+        if not base_experiment_name:
+             # Return warning row
+            return html.Tr(html.Td("Project name is missing.", colSpan=4))
+
+        print(f"Fetching MLflow runs for base experiment: {base_experiment_name}")
+        runs, experiment_id, error_msg = get_experiment_runs(base_experiment_name)
+
+        if error_msg:
+             # Return warning row
+            return html.Tr(html.Td(error_msg, colSpan=4))
+        
+        if runs is None: 
+             # Return error row
+            return html.Tr(html.Td("Error retrieving MLflow runs (unexpected state). Check logs.", colSpan=4))
+
+        if not runs:
+             # Return info row
+            return html.Tr(html.Td("No runs found for this experiment.", colSpan=4))
+
+        # Format runs into Table Rows
+        table_rows = []
+        host = os.getenv("DATABRICKS_HOST") 
+        if host and not host.startswith('https://'):
+             host = 'https://' + host 
+        
+        for run in runs: 
+            run_info = run.get('info', {})
+            run_data = run.get('data', {})
+            run_id = run_info.get('run_id', 'N/A') # Get Run ID
+            
+            # --- Get Tags (Job ID, Job Run ID) --- #
+            tags = {tag['key']: tag['value'] for tag in run_data.get('tags', [])}
+            job_id_str = tags.get('mlflow.databricks.jobID')
+            job_run_id_str = tags.get('mlflow.databricks.jobRunID')
+            # --- End Tags --- #
+
+            # --- Construct Source Link (Job Run URL) --- #
+            source_link = "#" 
+            link_text = "Source Info Missing"
+            if host and job_id_str and job_run_id_str:
+                host_cleaned = host.rstrip('/') 
+                source_link = f"{host_cleaned}/jobs/{job_id_str}/runs/{job_run_id_str}"
+                link_text = f"run {job_run_id_str} of job {job_id_str}"
+            elif job_id_str and job_run_id_str: 
+                 link_text = f"run {job_run_id_str} of job {job_id_str} (Link Unavailable)"
+            # --- End Source Link Construction --- #
+
+            # --- Construct Run ID Link (MLflow Run URL) --- #
+            mlflow_run_link = "#" # Default fallback
+            if host and experiment_id and run_id != 'N/A':
+                 host_cleaned = host.rstrip('/')
+                 mlflow_run_link = f"{host_cleaned}/ml/experiments/{experiment_id}/runs/{run_id}"
+            # --- End Run ID Link Construction --- #
+
+            # --- Cells: Source (linked), Run ID (linked), Metrics, Dataset --- # 
+            source_cell = html.Td(html.A(link_text, href=source_link, target="_blank"))
+            # Make Run ID a hyperlink using the MLflow run URL
+            run_id_cell = html.Td(html.A(run_id, href=mlflow_run_link, target="_blank")) 
+
+            # --- Format Metrics --- #
+            metrics_str = "N/A"
+            metrics_list = run_data.get('metrics', []) 
+            if metrics_list:
+                metrics_str = " | ".join([
+                    f"{metric.get('key')}: {metric.get('value'):.4f}"
+                    for metric in metrics_list 
+                    if metric.get('key') and metric.get('value') is not None
+                ])
+            metrics_cell = html.Td(metrics_str)
+            # --- End Metrics --- #
+
+            # --- Get Dataset Name via Job ID from Tags --- #
+            dataset_name = "N/A" 
+            if job_id_str:
+                try:
+                    job_id = int(job_id_str)
+                    dataset_name = get_dataset_name_by_job_id(job_id)
+                except ValueError:
+                    dataset_name = "Invalid Job ID Tag"
+                except Exception as e:
+                    print(f"Error looking up dataset by job ID {job_id_str}: {e}")
+                    dataset_name = "DB Lookup Error"
+            else:
+                 dataset_name = "Job ID Tag Missing"
+                 
+            dataset_cell = html.Td(dataset_name)
+            # --- End Dataset Name --- #
+
+            # --- Append Row --- #
+            # Reorder: Dataset, Metrics, Run ID, Source
+            table_rows.append(html.Tr([dataset_cell, metrics_cell, run_id_cell, source_cell]))
+            # --- End Row --- #
+
+        return table_rows
+    
+    # --- Callback to populate the dataset dropdown on the Train tab --- #
+    @app.callback(
+        Output('train-dataset-dropdown', 'options'),
+        Output('train-dataset-dropdown', 'value'),
+        Input("tabs", "active_tab"),
+        Input("list-store", "data"), # Trigger when project changes
+        # Also consider Input("dataset-store", "data") if datasets can change while on train tab
+        prevent_initial_call=True
+    )
+    def populate_train_dataset_dropdown(active_tab, list_store):
+        if active_tab != 'tab-train' or not list_store:
+            # Don't update if not on the right tab or store is empty
+            return no_update, no_update
+
+        project_id = list_store.get('active_project_id')
+        if not project_id:
+            # No project selected, clear dropdown
+            return [], None 
+
+        print(f"Populating dataset dropdown for project ID: {project_id}")
+        df_datasets = get_datasets(project_id)
+        options = []
+        value = None
+        if not df_datasets.empty:
+            # Only include materialized datasets? Or all? Let's include all for now.
+            # Might want to filter: df_datasets = df_datasets[df_datasets['materialized'] == True]
+            options = [
+                {'label': row['name'], 'value': row['id']}
+                for index, row in df_datasets.iterrows()
+            ]
+            if options: # Set default value to the first dataset
+                value = options[0]['value']
+        
+        return options, value
+    # --- End Dropdown Population Callback --- #
     

@@ -21,6 +21,11 @@ def create_dataset_tab():
         dbc.Label("Name", html_for="dataset-name"),
         dbc.Input(type="text", id="dataset-name", placeholder="Enter dataset name"),
 
+        # --- Add Target Variable Input --- #
+        dbc.Label("Target Variable", html_for="dataset-target"),
+        dbc.Input(type="text", id="dataset-target", placeholder="Enter target variable name"),
+        # --- End Target Variable Input --- #
+
         # Source Type selection
         html.Div([
             dbc.Label("Source Type", html_for="dataset-source-type"),
