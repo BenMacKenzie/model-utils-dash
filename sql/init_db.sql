@@ -1,6 +1,7 @@
 -- Drop existing tables if they exist
--- DROP TABLE IF EXISTS datasets;
--- DROP TABLE IF EXISTS projects;
+DROP TABLE IF EXISTS training;
+DROP TABLE IF EXISTS datasets;
+DROP TABLE IF EXISTS projects;
 
 -- Create the main table for storing data
 CREATE TABLE if not exists projects (
@@ -23,11 +24,11 @@ CREATE TABLE if not exists datasets (
     timestamp_col VARCHAR(255) DEFAULT NULL,
     evaluation_type VARCHAR(64) NOT NULL CHECK (evaluation_type IN ('random', 'table', 'timestamp')),
     percentage NUMERIC DEFAULT NULL,
-    eval_table_name VARCHAR(255) DEFAULT NULL,
+    source_table_eval VARCHAR(255) DEFAULT NULL,
     split_time_column VARCHAR(255) DEFAULT NULL,
     materialized BOOLEAN NOT NULL DEFAULT FALSE,
     training_table_name VARCHAR(255) DEFAULT NULL,
-    eval_table_name_generated VARCHAR(255) DEFAULT NULL,
+    eval_table_name VARCHAR(255) DEFAULT NULL,
     target VARCHAR(255) DEFAULT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

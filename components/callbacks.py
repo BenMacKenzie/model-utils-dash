@@ -224,10 +224,10 @@ def register_callbacks(app):
         State("dataset-timestamp-col", "value"),
         State("dataset-evaluation-type", "value"),
         State("dataset-percentage", "value"),
-        State("dataset-eval-table-name", "value"),
+        State("dataset-source-table-eval", "value"),
         State("dataset-split-time-column", "value"),
         State("dataset-training-table-name", "value"),
-        State("dataset-eval-table-generated", "value"),
+        State("dataset-eval-table-name", "value"),
         State("dataset-materialized", "value"),
         State("dataset-target", "value"),
         prevent_initial_call=True
@@ -238,8 +238,8 @@ def register_callbacks(app):
                         name, source_type, eol_def, feat_lookup_def,
                         source_table, timestamp_col,
                         eval_type, percentage,
-                        eval_table_name, split_time_column,
-                        training_table_name, eval_table_generated,
+                        source_table_eval_input, split_time_column,
+                        training_table_name, eval_table_name_input,
                         materialized, target):
         trigger = ctx.triggered_id
         # Convert comma-separated string fields into Python lists for Postgres array columns
@@ -273,11 +273,11 @@ def register_callbacks(app):
                     "timestamp_col": rec.get("timestamp_col"),
                     "evaluation_type": rec.get("evaluation_type"),
                     "percentage": rec.get("percentage"),
-                    "eval_table_name": rec.get("eval_table_name"),
+                    "source_table_eval": rec.get("source_table_eval"),
                     "split_time_column": rec.get("split_time_column"),
                     "materialized": rec.get("materialized"),
                     "training_table_name": rec.get("training_table_name"),
-                    "eval_table_name_generated": rec.get("eval_table_name_generated"),
+                    "eval_table_name": rec.get("eval_table_name"),
                     "target": rec.get("target")
                 })
             list_items = []
@@ -317,12 +317,12 @@ def register_callbacks(app):
                 None, # source_table
                 "random", # evaluation_type
                 None, # percentage
-                None, # eval_table_name
+                None, # source_table_eval
                 None, # split_time_column
                 None, # timestamp_col (Correct position)
                 False, # materialized (Correct position)
                 None, # training_table_name
-                None,  # eval_table_name_generated
+                None,  # eval_table_name (generated)
                 "" # <-- Add empty target for new dataset
             )
             if dsid is None:
@@ -337,11 +337,11 @@ def register_callbacks(app):
                 "timestamp_col": "",
                 "evaluation_type": "random",
                 "percentage": None,
-                "eval_table_name": "",
+                "source_table_eval": "",
                 "split_time_column": "",
                 "materialized": False,
                 "training_table_name": "",
-                "eval_table_name_generated": "",
+                "eval_table_name": "",
                 "target": "" # <-- Add empty target to store item
             }]
             # Render list without selecting any item (form cleared separately)
@@ -383,12 +383,12 @@ def register_callbacks(app):
                 source_table,
                 eval_type,
                 percentage,
-                eval_table_name,
+                source_table_eval_input,
                 split_time_column,
                 timestamp_col,
                 bool(materialized),
                 training_table_name,
-                eval_table_generated,
+                eval_table_name_input,
                 target
             )
             if upd is None:
@@ -408,11 +408,11 @@ def register_callbacks(app):
                         "timestamp_col": rec.get("timestamp_col"),
                         "evaluation_type": rec.get("evaluation_type"),
                         "percentage": rec.get("percentage"),
-                        "eval_table_name": rec.get("eval_table_name"),
+                        "source_table_eval": rec.get("source_table_eval"),
                         "split_time_column": rec.get("split_time_column"),
                         "materialized": rec.get("materialized"),
                         "training_table_name": rec.get("training_table_name"),
-                        "eval_table_name_generated": rec.get("eval_table_name_generated"),
+                        "eval_table_name": rec.get("eval_table_name"),
                         "target": rec.get("target")
                     })
             list_items = [
@@ -471,11 +471,11 @@ def register_callbacks(app):
                         "timestamp_col": rec.get("timestamp_col"),
                         "evaluation_type": rec.get("evaluation_type"),
                         "percentage": rec.get("percentage"),
-                        "eval_table_name": rec.get("eval_table_name"),
+                        "source_table_eval": rec.get("source_table_eval"),
                         "split_time_column": rec.get("split_time_column"),
                         "materialized": rec.get("materialized"),
                         "training_table_name": rec.get("training_table_name"),
-                        "eval_table_name_generated": rec.get("eval_table_name_generated"),
+                        "eval_table_name": rec.get("eval_table_name"),
                         "target": rec.get("target")
                     })
             list_items = []
@@ -544,10 +544,10 @@ def register_callbacks(app):
         Output("dataset-timestamp-col", "value"),
         Output("dataset-evaluation-type", "value"),
         Output("dataset-percentage", "value"),
-        Output("dataset-eval-table-name", "value"),
+        Output("dataset-source-table-eval", "value"),
         Output("dataset-split-time-column", "value"),
         Output("dataset-training-table-name", "value"),
-        Output("dataset-eval-table-generated", "value"),
+        Output("dataset-eval-table-name", "value"),
         Output("dataset-materialized", "value"),
         Output("materialize-dataset-button", "disabled"),
         Output("dataset-target", "value"),
@@ -570,10 +570,10 @@ def register_callbacks(app):
                 "",              # timestamp_col
                 "random",        # evaluation type
                 None,             # percentage
-                "",              # eval table name
+                "",              # source_table_eval
                 "",              # split time column
                 "",              # training table name
-                "",              # eval table generated
+                "",              # eval_table_name
                 [],                # materialized
                 False,             # materialize button disabled
                 ""               # <-- Clear target on create
@@ -602,10 +602,10 @@ def register_callbacks(app):
                 ds.get('timestamp_col', ''),
                 ds.get('evaluation_type', ''),
                 ds.get('percentage', None),
-                ds.get('eval_table_name', ''),
+                ds.get('source_table_eval', ''),
                 ds.get('split_time_column', ''),
                 ds.get('training_table_name', ''),
-                ds.get('eval_table_name_generated', ''),
+                ds.get('eval_table_name', ''),
                 mat_checklist_value,
                 materialized_status,  # Set button disabled state
                 ds.get('target', '') # <-- Populate target on selection
@@ -713,7 +713,7 @@ def register_callbacks(app):
     @app.callback(
         Output("dataset-store", "data", allow_duplicate=True),
         Output("dataset-training-table-name", "value", allow_duplicate=True),
-        Output("dataset-eval-table-generated", "value", allow_duplicate=True),
+        Output("dataset-eval-table-name", "value", allow_duplicate=True),
         Output("dataset-materialized", "value", allow_duplicate=True),
         # Consider adding an Output for user feedback (e.g., an Alert)
         Input("materialize-dataset-button", "n_clicks"),
@@ -726,17 +726,18 @@ def register_callbacks(app):
         State("dataset-source-type", "value"),
         State("dataset-evaluation-type", "value"),
         State("dataset-percentage", "value"),
-        State("dataset-eval-table-name", "value"),
+        State("dataset-source-table-eval", "value"),
         State("dataset-split-time-column", "value"),
         State("dataset-timestamp-col", "value"),
+        State("dataset-target", "value"),
         # Get dataset ID directly (needed for update_dataset)
         State({"type": "dataset-group-item", "index": ALL}, "id"),
         prevent_initial_call=True
     )
     def materialize_dataset_callback(n_clicks, list_store, ds_store, proj_active, ds_active,
                                    source_table, source_type, eval_type, percentage,
-                                   eval_table_input, split_time_input, timestamp_col,
-                                   ds_ids):
+                                   source_table_eval_input, split_time_input, timestamp_col,
+                                   target, ds_ids):
         if not n_clicks or n_clicks < 1:
             raise PreventUpdate
 
@@ -790,7 +791,7 @@ def register_callbacks(app):
         # Use sanitized dataset name as the base for generated tables
         target_base = f"{project_catalog}.{project_schema}.{sanitized_ds_name}"
         training_table_name = f"{target_base}_training_{timestamp_suffix}"
-        eval_table_name_generated = f"{target_base}_eval_{timestamp_suffix}"
+        generated_eval_table_name = f"{target_base}_eval_{timestamp_suffix}"
 
         # Determine qualified source table name (needed for SELECT)
         source_parts = source_table.split('.')
@@ -804,7 +805,7 @@ def register_callbacks(app):
         print(f"Using Dataset Name: {ds_name} (Sanitized: {sanitized_ds_name})")
         print(f"Source Table (Qualified): {qualified_source_table}")
         print(f"Generated training table: {training_table_name}")
-        print(f"Generated eval table: {eval_table_name_generated}")
+        print(f"Generated eval table: {generated_eval_table_name}")
 
         # --- 3. Execute Databricks SQL --- 
         print("Attempting to connect to Databricks...")
@@ -828,7 +829,7 @@ def register_callbacks(app):
                 temp_table_name = f"{target_base}_temp_split_{timestamp_suffix}"
                 sql_create_temp = f"CREATE TABLE {temp_table_name} AS SELECT *, rand() as __rand_split FROM {qualified_source_table}"
                 sql_train = f"CREATE TABLE {training_table_name} AS SELECT * EXCEPT (__rand_split) FROM {temp_table_name} WHERE __rand_split >= {percentage}"
-                sql_eval = f"CREATE TABLE {eval_table_name_generated} AS SELECT * EXCEPT (__rand_split) FROM {temp_table_name} WHERE __rand_split < {percentage}"
+                sql_eval = f"CREATE TABLE {generated_eval_table_name} AS SELECT * EXCEPT (__rand_split) FROM {temp_table_name} WHERE __rand_split < {percentage}"
                 sql_drop_temp = f"DROP TABLE IF EXISTS {temp_table_name}"
                 
                 print("Executing: Create Temp Table")
@@ -845,15 +846,15 @@ def register_callbacks(app):
                 sql_success = True # If all steps passed
 
             elif eval_type == "table":
-                if not eval_table_input:
+                if not source_table_eval_input:
                     print("Missing evaluation table name for 'table' split type.")
                     # TODO: User feedback
                     raise PreventUpdate
                 # Assume eval_table_input is qualified or in the same catalog/schema context
                 # Training table is the full source
                 sql_train = f"CREATE TABLE {training_table_name} AS SELECT * FROM {qualified_source_table}"
-                # Eval table is a copy of the user-provided table
-                sql_eval = f"CREATE TABLE {eval_table_name_generated} AS SELECT * FROM {eval_table_input}"
+                # Eval table is a copy of the user-provided table (use renamed state variable)
+                sql_eval = f"CREATE TABLE {generated_eval_table_name} AS SELECT * FROM {source_table_eval_input}"
                 
                 print("Executing: Create Training Table")
                 if not execute_sql(conn_db, sql_train):
@@ -871,7 +872,7 @@ def register_callbacks(app):
                 # Ensure split_time_input is appropriately quoted if it's a string timestamp
                 # Assuming it's a standard timestamp format recognized by Databricks SQL
                 sql_train = f"CREATE TABLE {training_table_name} AS SELECT * FROM {qualified_source_table} WHERE {timestamp_col} < '{split_time_input}'"
-                sql_eval = f"CREATE TABLE {eval_table_name_generated} AS SELECT * FROM {qualified_source_table} WHERE {timestamp_col} >= '{split_time_input}'"
+                sql_eval = f"CREATE TABLE {generated_eval_table_name} AS SELECT * FROM {qualified_source_table} WHERE {timestamp_col} >= '{split_time_input}'"
                 
                 print("Executing: Create Training Table")
                 if not execute_sql(conn_db, sql_train):
@@ -891,7 +892,7 @@ def register_callbacks(app):
             # TODO: Show user feedback 
             # Optional: Attempt cleanup like dropping partially created tables
             # execute_sql(conn_db, f"DROP TABLE IF EXISTS {training_table_name}")
-            # execute_sql(conn_db, f"DROP TABLE IF EXISTS {eval_table_name_generated}")
+            # execute_sql(conn_db, f"DROP TABLE IF EXISTS {generated_eval_table_name}")
 
         finally:
             if conn_db:
@@ -915,12 +916,12 @@ def register_callbacks(app):
             source_table=source_table,
             evaluation_type=eval_type,
             percentage=percentage,
-            eval_table_name=eval_table_input,
+            source_table_eval=source_table_eval_input,
             split_time_column=split_time_input,
             timestamp_col=timestamp_col,
             materialized=True,
             training_table_name=training_table_name,
-            eval_table_name_generated=eval_table_name_generated,
+            eval_table_name=generated_eval_table_name,
             target=target
         )
 
@@ -938,55 +939,15 @@ def register_callbacks(app):
             if item.get('id') == ds_id:
                 item['materialized'] = True
                 item['training_table_name'] = training_table_name
-                item['eval_table_name_generated'] = eval_table_name_generated
+                item['eval_table_name'] = generated_eval_table_name
                 item['target'] = target
             updated_items.append(item)
 
         # Update form fields and checklist
         new_materialized_value = [True] # Checklist expects a list
 
-        return ({'items': updated_items}, training_table_name, eval_table_name_generated, new_materialized_value)
+        return ({'items': updated_items}, training_table_name, generated_eval_table_name, new_materialized_value)
     
-    @app.callback(
-        Output("train-selected-dataset-name", "children"),
-        Output("train-job-id-display", "children"),
-        # Trigger on dropdown change instead of active list item
-        Input("train-dataset-dropdown", "value"), 
-        # Keep project store state to get project ID for job lookup
-        State("list-store", "data"),
-        prevent_initial_call=True
-    )
-    def update_train_tab_dataset_display(selected_ds_id, proj_store):
-        """Update the displayed dataset name and Job ID on the Train tab based on dropdown selection."""
-        # Removed active_tab, ds_active_states, ds_store args
-
-        if not selected_ds_id or not proj_store:
-            # If no dataset is selected in dropdown or project store is empty
-            return "No Dataset Selected", "Job ID: -"
-
-        try:
-            # Get dataset name using the ID from the dropdown
-            dataset_details = get_dataset_details(selected_ds_id)
-            selected_ds_name = dataset_details.get('name', 'Error Loading Name') if dataset_details else "Dataset Not Found"
-            
-            project_id = proj_store.get("active_project_id")
-
-            dataset_name_text = f"Dataset: {selected_ds_name} (ID: {selected_ds_id})"
-            job_id_text = "Job ID: Not Created Yet"
-
-            if project_id:
-                training_record = get_training_job(project_id, selected_ds_id)
-                if training_record and training_record.get('job_id'):
-                    job_id_text = f"Job ID: {training_record['job_id']}"
-                elif training_record:
-                     job_id_text = "Job ID: Created in DB, not yet linked to Databricks Job"
-
-            return dataset_name_text, job_id_text
-        except Exception as e:
-            print(f"Error in update_train_tab_dataset_display: {e}")
-            return "Error Loading Info", "Job ID: Error"
-
-
     @app.callback(
         Output("train-status-output", "children"),
         Input("train-run-button", "n_clicks"),
@@ -1013,24 +974,6 @@ def register_callbacks(app):
         # ds_items_count = len(ds_store.get("items", [])) # Removed
         # print(f"Items in dataset-store: {ds_items_count}") # Removed
         # --- End Debugging Removal --- #
-
-        # --- Remove logic for finding selected dataset via active state --- #
-        # try:
-        #     ds_idx = ds_active_states.index(True)
-        #     # --- Add More Debugging --- #
-        #     print(f"Found active dataset index: {ds_idx}")
-        #     # --- End More Debugging --- #
-        #     selected_ds_id = ds_store.get("items", [])[ds_idx]["id"]
-        #     # --- Add More Debugging --- #
-        #     print(f"Retrieved selected_ds_id: {selected_ds_id}")
-        #     # --- End More Debugging --- #
-        # except (ValueError, IndexError, TypeError) as e:
-        #     # --- Add Error Debugging --- #
-        #     print(f"Error finding selected dataset: {e}") 
-        #     print("----------------------------------------")
-        #     # --- End Error Debugging --- #
-        #     return dbc.Alert("Error: Please select a dataset first.", color="danger")
-        # --- End Removal --- #
 
         # --- Add Validation for Dropdown Selection --- #
         if not selected_ds_id:
@@ -1070,11 +1013,23 @@ def register_callbacks(app):
 
         target_variable = dataset_details.get('target')
         training_table = dataset_details.get('training_table_name')
+        # --- Add retrieval for eval table --- #
+        eval_table = dataset_details.get('eval_table_name') 
+        # --- End retrieval --- #
         dataset_name = dataset_details.get('name')
         project_name = project_details.get('text')
 
         if not training_table:
              return dbc.Alert(f"Error: Dataset '{dataset_name}' has not been materialized yet (no training table name).", color="danger")
+        
+        # --- Add check for eval table if needed by the job --- #
+        # Depending on your notebook logic, you might need the eval table even if created.
+        # Add a check here if the eval table is strictly required.
+        if not eval_table:
+             print(f"Warning: Dataset '{dataset_name}' does not have a generated evaluation table name.")
+             # Optionally return an error if eval_table is mandatory:
+             # return dbc.Alert(f"Error: Dataset '{dataset_name}' is missing a generated evaluation table.", color="danger")
+        # --- End check --- #
 
         # --- 5. Logic: Run Existing or Create New Job --- #
         try:
@@ -1092,19 +1047,24 @@ def register_callbacks(app):
                 print(f"Creating new Databricks Job: {job_name}")
                 
                 # Prepare base parameters for the notebook task
-                base_params = {
-                    "experiment_name": experiment_name,
-                    "target": target_variable,
-                    "table_name": training_table
-                }
+                # --- Remove base_params dict, pass directly --- #
+                # base_params = {
+                #     "experiment_name": experiment_name,
+                #     "target": target_variable,
+                #     "table_name": training_table # Old parameter
+                # }
                 # Merge user parameters, user params take precedence
-                base_params.update(parameters) 
+                # base_params.update(parameters) 
+                # --- End Removal --- #
 
                 new_job = create_databricks_job(
                     job_name=job_name,
                     experiment_name=experiment_name,
                     target=target_variable,
-                    table_name=training_table,
+                    # --- Pass correct table names --- #
+                    training_table_name=training_table,
+                    eval_table_name=eval_table, # Pass the retrieved eval table name
+                    # --- End pass correct table names --- #
                     git_url=git_details['git_url'],
                     git_provider=git_details['git_provider'],
                     git_branch=git_details['git_branch'],
@@ -1175,14 +1135,21 @@ def register_callbacks(app):
         print(f"Fetching MLflow runs for base experiment: {base_experiment_name}")
         runs, experiment_id, error_msg = get_experiment_runs(base_experiment_name)
 
+        # --- Modification START ---
+        # If there was an error fetching runs (e.g., experiment not found, connection issue)
+        # return an empty list to make the table blank.
         if error_msg:
-             # Return warning row
-            return html.Tr(html.Td(error_msg, colSpan=4))
+            print(f"MLflow fetch error, leaving list blank: {error_msg}")
+            return [] # Return empty list instead of error row
         
+        # Handle the case where get_experiment_runs might return None for runs unexpectedly
+        # although the previous check should catch most errors.
         if runs is None: 
-             # Return error row
-            return html.Tr(html.Td("Error retrieving MLflow runs (unexpected state). Check logs.", colSpan=4))
+            print("MLflow runs list is None unexpectedly, leaving list blank.")
+            return [] # Return empty list instead of error row
+        # --- Modification END ---
 
+        # If the experiment exists but has no runs, show the "No runs found" message.
         if not runs:
              # Return info row
             return html.Tr(html.Td("No runs found for this experiment.", colSpan=4))

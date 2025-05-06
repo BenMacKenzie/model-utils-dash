@@ -123,10 +123,14 @@ def get_datasets(project_id):
 
     
     # Fetch all relevant dataset fields including target
+    # User-provided eval table is `eval_table_name`
+    # Generated eval table is also `eval_table_name` (formerly eval_table_name_generated)
     return fetch_data(
         "SELECT id, name, source_type, eol_definition, feature_lookup_definition, source_table,"
         " timestamp_col, evaluation_type, percentage, eval_table_name, split_time_column, materialized,"
-        " training_table_name, eval_table_name_generated, target"
+        " training_table_name, eval_table_name, target"
+        # Note: eval_table_name appears twice intentionally to fetch both columns
+        # The second occurrence corresponds to the generated table name.
         " FROM datasets WHERE project_id = %s ORDER BY name ASC;",
         params=(project_id,)
     )
@@ -134,9 +138,10 @@ def get_datasets(project_id):
 def create_dataset(project_id, name, source_type,
                    eol_definition, feature_lookup_definition,
                    source_table, evaluation_type, percentage,
-                   eval_table_name, split_time_column, timestamp_col,
+                   # User-provided eval table name (maps to first eval_table_name col)
+                   source_table_eval, split_time_column, timestamp_col,
                    materialized, training_table_name,
-                   eval_table_name_generated, target):
+                   eval_table_name, target):
     """
     Inserts a new dataset for the given project and returns the new dataset ID.
     """
@@ -146,22 +151,27 @@ def create_dataset(project_id, name, source_type,
     try:
         cur = conn.cursor()
         # Insert new dataset and return its ID
+        # Use correct column names: eval_table_name for user-provided, eval_table_name for generated
         cur.execute(
             """
             INSERT INTO datasets (
                 project_id, name, source_type, eol_definition,
                 feature_lookup_definition, source_table, evaluation_type,
-                percentage, eval_table_name, split_time_column, timestamp_col,
-                materialized, training_table_name, eval_table_name_generated, target
+                percentage, source_table_eval, split_time_column, timestamp_col,
+                materialized, training_table_name, eval_table_name, target
             ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id;
             """,
             (
                 project_id, name, source_type, eol_definition,
                 feature_lookup_definition, source_table, evaluation_type,
-                percentage, eval_table_name, split_time_column,
+                percentage, 
+                source_table_eval,
+                split_time_column,
                 timestamp_col,
-                materialized, training_table_name, eval_table_name_generated,
+                materialized, training_table_name, 
+                # Generated eval table name (using the specific parameter)
+                eval_table_name,
                 target
             )
         )
@@ -183,9 +193,11 @@ def create_dataset(project_id, name, source_type,
 def update_dataset(dataset_id, name, source_type,
                    eol_definition, feature_lookup_definition,
                    source_table, evaluation_type, percentage,
-                   eval_table_name, split_time_column, timestamp_col,
+                   # User-provided eval table name
+                   source_table_eval, split_time_column, timestamp_col,
                    materialized, training_table_name,
-                   eval_table_name_generated, target):
+                   # Generated eval table name
+                   eval_table_name, target):
     """Updates an existing dataset and returns the dataset ID if successful."""
     conn = get_db_connection()
     if conn is None:
@@ -193,6 +205,7 @@ def update_dataset(dataset_id, name, source_type,
     try:
         cur = conn.cursor()
         # Update dataset record
+        # Use correct column names: eval_table_name for user-provided, eval_table_name for generated
         cur.execute(
             """
             UPDATE datasets SET
@@ -203,21 +216,25 @@ def update_dataset(dataset_id, name, source_type,
                 source_table = %s,
                 evaluation_type = %s,
                 percentage = %s,
-                eval_table_name = %s,
+                source_table_eval = %s,  -- User-provided eval table name
                 split_time_column = %s,
                 timestamp_col = %s,
                 materialized = %s,
                 training_table_name = %s,
-                eval_table_name_generated = %s,
+                eval_table_name = %s,  -- Generated eval table name
                 target = %s
             WHERE id = %s;
             """,
             (
                 name, source_type, eol_definition,
                 feature_lookup_definition, source_table,
-                evaluation_type, percentage, eval_table_name,
+                evaluation_type, percentage, 
+                # User-provided eval table name
+                source_table_eval,
                 split_time_column, timestamp_col,
-                materialized, training_table_name, eval_table_name_generated,
+                materialized, training_table_name, 
+                # Generated eval table name (using the specific parameter)
+                eval_table_name,
                 target,
                 dataset_id
             )
@@ -351,11 +368,34 @@ def update_training_job_id(training_id, job_id):
         return False
 
 def get_dataset_details(dataset_id):
-    """ Fetches specific details for a given dataset ID. """
-    query = "SELECT name, target, training_table_name FROM datasets WHERE id = %s;"
-    df = fetch_data(query, params=(dataset_id,))
-    if not df.empty:
-        return df.iloc[0].to_dict()
+    """Fetches details for a specific dataset."""
+    conn = get_db_connection()
+    if conn:
+        try:
+            # Use RealDictCursor to get results as dictionaries
+            cur = conn.cursor(cursor_factory=RealDictCursor)
+            # Select both eval_table_name columns, aliasing the second one for clarity
+            cur.execute(
+                "SELECT id, project_id, name, source_type, eol_definition, "
+                "feature_lookup_definition, source_table, timestamp_col, "
+                "evaluation_type, percentage, eval_table_name AS source_table_eval, split_time_column, "
+                "materialized, training_table_name, eval_table_name, target "
+                "FROM datasets WHERE id = %s;",
+                (dataset_id,)
+            )
+            details = cur.fetchone()
+            # --- Rename aliased key back for consistency with other parts of the code --- 
+            # The rest of the code expects the generated name under 'eval_table_name'
+            # The user-provided name (only relevant for eval_type='table') will be under 'source_table_eval'
+            # if details and 'eval_table_name' in details:
+            #     details['generated_eval_table_name'] = details.pop('eval_table_name')
+            # # --- End rename --- #
+            cur.close()
+            conn.close()
+            return details
+        except Exception as e:
+            print(f"Error fetching dataset details: {e}")
+            conn.close()
     return None
 
 def get_project_git_details(project_id):

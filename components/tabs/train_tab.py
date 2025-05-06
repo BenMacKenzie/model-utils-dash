@@ -9,9 +9,6 @@ def create_train_tab():
         children=[
             dbc.Row([
                 dbc.Col([
-                    html.H5("Selected Dataset:"),
-                    html.Div(id="train-selected-dataset-name", children="None Selected"),
-                    html.Div(id="train-job-id-display", children="Job ID: Not Created Yet", style={'font-style': 'italic', 'margin-bottom': '1rem'}),
                     html.Hr(),
                     html.H5("Select Dataset for Training:"),
                     dcc.Dropdown(

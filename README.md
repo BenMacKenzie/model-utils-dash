@@ -9,3 +9,5 @@ psql model_utils -c "select * from training"
 
 need to include dataset and/or job id in mflow run so that we can track which runs belong to which dataset. also should log a dataset.  [need to update training notebook.]
 
+split traing and eval into separate notebooks?  or make a separate eval notebook available
+

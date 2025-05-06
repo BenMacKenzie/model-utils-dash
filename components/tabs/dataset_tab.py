@@ -88,8 +88,8 @@ def create_dataset_tab():
 
         # Eval Table Name (only for table)
         html.Div([
-            dbc.Label("Eval Table Name", html_for="dataset-eval-table-name"),
-            dbc.Input(type="text", id="dataset-eval-table-name", placeholder="Enter eval table name"),
+            dbc.Label("Source Eval Table", html_for="dataset-source-table-eval"),
+            dbc.Input(type="text", id="dataset-source-table-eval", placeholder="Enter source eval table name"),
         ], id="div-eval-table-name", className="mb-3", style={"display": "none"}),
 
         # Split Time Column (only for timestamp)
@@ -107,7 +107,7 @@ def create_dataset_tab():
         # Eval Table Name Generated (always displayed, read-only)
         html.Div([
             dbc.Label("Eval Table Name (Generated)"),
-            dbc.Input(type="text", id="dataset-eval-table-generated", readonly=True)
+            dbc.Input(type="text", id="dataset-eval-table-name", readonly=True)
         ], className="mb-3"),
 
         # Materialized toggle

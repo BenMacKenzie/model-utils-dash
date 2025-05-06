@@ -1,9 +1,10 @@
 from databricks.sdk import WorkspaceClient
 from databricks.sdk.service.jobs import NotebookTask, Task, GitSource, GitProvider
 
-def create_training_job(job_name, experiment_name, target, table_name, git_url, git_provider, git_branch, notebook_path):
+def create_training_job(job_name, experiment_name, target, training_table_name, eval_table_name, git_url, git_provider, git_branch, notebook_path):
     
     workspace_client = WorkspaceClient()
+    print(eval_table_name)
 
     job =  workspace_client.jobs.create(
         name=job_name,
@@ -21,7 +22,8 @@ def create_training_job(job_name, experiment_name, target, table_name, git_url, 
                     base_parameters={
                         "experiment_name": experiment_name,
                         "target": target,
-                        "table_name": table_name
+                        "training_table_name": training_table_name,
+                        "eval_table_name": eval_table_name
                     }
                 ),
                 description="train model"
