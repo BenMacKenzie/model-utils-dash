@@ -16,6 +16,7 @@ import json
 from utils.training import create_training_job as create_databricks_job, run_training_job
 # --- Add MLflow import --- #
 from utils.mlflow_utils import get_experiment_runs # Ensure correct function is imported
+from utils.mlflow_utils import register_model_version # Added for model registration
 # --- End Add imports --- #
 
 # --- Helper function for datetime formatting (optional) --- #
@@ -1119,18 +1120,18 @@ def register_callbacks(app):
         project_id = proj_store.get('active_project_id')
         if not project_id:
              # Return a row indicating selection needed
-            return html.Tr(html.Td("Select a project to view MLflow runs.", colSpan=4))
+            return html.Tr(html.Td("Select a project to view MLflow runs.", colSpan=5))
 
         project_details = get_project_from_store(proj_store, project_id)
         if not project_details:
             print(f"Error: Could not find details for project ID {project_id} in store.")
              # Return error row
-            return html.Tr(html.Td("Error retrieving project details.", colSpan=4))
+            return html.Tr(html.Td("Error retrieving project details.", colSpan=5))
 
         base_experiment_name = project_details.get('text')
         if not base_experiment_name:
              # Return warning row
-            return html.Tr(html.Td("Project name is missing.", colSpan=4))
+            return html.Tr(html.Td("Project name is missing.", colSpan=5))
 
         print(f"Fetching MLflow runs for base experiment: {base_experiment_name}")
         runs, experiment_id, error_msg = get_experiment_runs(base_experiment_name)
@@ -1152,7 +1153,7 @@ def register_callbacks(app):
         # If the experiment exists but has no runs, show the "No runs found" message.
         if not runs:
              # Return info row
-            return html.Tr(html.Td("No runs found for this experiment.", colSpan=4))
+            return html.Tr(html.Td("No runs found for this experiment.", colSpan=5))
 
         # Format runs into Table Rows
         table_rows = []
@@ -1210,8 +1211,9 @@ def register_callbacks(app):
             dataset_name = "N/A" 
             if job_id_str:
                 try:
-                    job_id = int(job_id_str)
-                    dataset_name = get_dataset_name_by_job_id(job_id)
+                    job_id_int = int(job_id_str) # Renamed to avoid conflict if job_id is used later
+                    dataset_name_from_db = get_dataset_name_by_job_id(job_id_int)
+                    dataset_name = dataset_name_from_db if dataset_name_from_db else "Dataset Not Found"
                 except ValueError:
                     dataset_name = "Invalid Job ID Tag"
                 except Exception as e:
@@ -1223,9 +1225,32 @@ def register_callbacks(app):
             dataset_cell = html.Td(dataset_name)
             # --- End Dataset Name --- #
 
+            # --- Create Register Model Button --- #
+            model_source = f"runs:/{run_id}/model" # Standard MLflow model source format
+
+            # Ensure dataset_name is a string for the data-* attribute.
+            # If dataset_name is None or not a string (e.g. from a failed lookup), provide a default.
+            button_dataset_name = dataset_name if isinstance(dataset_name, str) else "UnknownDataset"
+
+            register_button = html.Button(
+                "Register Model",
+                id={
+                    'type': 'register-model-button', 
+                    'index': run_id, # Keep run_id as index for pattern matching n_clicks
+                    'datasetname': button_dataset_name,
+                    'modelsource': model_source
+                },
+                n_clicks=0,
+                disabled=False,  # Initially enabled; future logic can disable if already registered
+                className="btn btn-primary" # Style as a Bootstrap primary button
+                # Removed data-* attributes as they are now in the id
+            )
+            actions_cell = html.Td(register_button)
+            # --- End Create Register Model Button --- #
+
             # --- Append Row --- #
-            # Reorder: Dataset, Metrics, Run ID, Source
-            table_rows.append(html.Tr([dataset_cell, metrics_cell, run_id_cell, source_cell]))
+            # Reorder: Dataset, Metrics, Run ID, Source, Actions
+            table_rows.append(html.Tr([dataset_cell, metrics_cell, run_id_cell, source_cell, actions_cell]))
             # --- End Row --- #
 
         return table_rows
@@ -1265,4 +1290,71 @@ def register_callbacks(app):
         
         return options, value
     # --- End Dropdown Population Callback --- #
+    
+    @app.callback(
+        Output("train-status-output", "children", allow_duplicate=True), # Output for feedback
+        Input({'type': 'register-model-button', 'index': ALL, 'datasetname': ALL, 'modelsource': ALL}, 'n_clicks'),
+        State("list-store", "data"), # For catalog/schema
+        prevent_initial_call=True
+    )
+    def handle_register_model_click(n_clicks_list, proj_store):
+        if not ctx.triggered_id:
+            # This condition might be met if n_clicks_list is all None or 0, prevent update.
+            raise PreventUpdate
+
+        # Check if the sum of n_clicks (for all buttons that could have triggered) is 0
+        # This filters out initial calls or callbacks where no button was actually clicked
+        # (e.g. if a button was dynamically removed and Dash still tried to process its callback)
+        if not any(n_click for n_click in n_clicks_list if n_click is not None):
+            raise PreventUpdate
+
+        clicked_button_id_dict = ctx.triggered_id 
+        
+        run_id = clicked_button_id_dict.get('index') 
+        dataset_name = clicked_button_id_dict.get('datasetname')
+        model_source = clicked_button_id_dict.get('modelsource')
+
+        if not dataset_name or not model_source or not run_id:
+            return dbc.Alert("Error: Missing necessary data from the button (run_id, dataset name, or model source).", color="danger")
+
+        active_project_id = proj_store.get("active_project_id")
+        if not active_project_id:
+            return dbc.Alert("Error: No active project selected.", color="danger")
+        
+        project_details = get_project_from_store(proj_store, active_project_id) 
+        if not project_details:
+            return dbc.Alert(f"Error: Could not retrieve details for project ID {active_project_id}.", color="danger")
+
+        catalog = project_details.get('catalog')
+        schema = project_details.get('schema')
+
+        if not catalog or not schema:
+            return dbc.Alert("Error: Project catalog or schema is not defined. Please set them in the Project tab.", color="danger")
+        
+        if dataset_name == "UnknownDataset" or dataset_name == "Dataset Not Found" or dataset_name == "DB Lookup Error" or dataset_name == "Invalid Job ID Tag" or dataset_name == "Job ID Tag Missing":
+            return dbc.Alert(f"Error: Cannot register model. The dataset name associated with run ID '{run_id}' is '{dataset_name}'. Please ensure the run is correctly tagged with a job ID and the job ID is linked to a valid dataset.", color="danger")
+
+        # Sanitize dataset_name by replacing spaces with underscores
+        sanitized_dataset_name = dataset_name.replace(" ", "_")
+
+        model_name_str = f"{catalog}.{schema}.{sanitized_dataset_name}"
+        
+        print(f"Attempting to register model: {model_name_str} from source: {model_source} for run: {run_id}")
+        
+        response_data, error_msg = register_model_version(model_name=model_name_str, model_source=model_source)
+
+        if error_msg:
+            return dbc.Alert(f"Error registering model '{model_name_str}': {error_msg}", color="danger")
+        
+        # Check if response_data itself is the model version information
+        if response_data and response_data.get("version"): 
+            version = response_data.get("version")
+            status_message = response_data.get("status_message", "Status not available.")
+            # mlflow_web_url = proj_store.get("mlflow_web_url") # Assuming you might store this
+            # model_link = f"{mlflow_web_url}/#/models/{model_name_str}/versions/{version}" # Example link
+            
+            return dbc.Alert(f"Successfully registered model '{model_name_str}' as version {version}. Source: {model_source}. Status: {status_message}", color="success")
+        else:
+            # This case should ideally not be hit if error_msg is None and registration was successful
+            return dbc.Alert(f"Model registration for '{model_name_str}' returned an unexpected response format. API Response: {response_data}", color="warning")
     
