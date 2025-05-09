@@ -55,6 +55,7 @@ def register_callbacks(app):
                     'description': rec.get('description'),
                     'catalog': rec.get('catalog'),
                     'schema': rec.get('schema'),
+                    'git_url': rec.get('git_url')
                 }
                 for rec in records
             ]
@@ -106,7 +107,7 @@ def register_callbacks(app):
     )
     def create_project_callback(create_clicks, store_data):
         print("create_project_callback")
-        project_id = create_project("New", "", "", "")
+        project_id = create_project("New", "", "", "", "")
         if project_id is None:
             return no_update, no_update
         # Append stub
@@ -115,7 +116,8 @@ def register_callbacks(app):
             'text': 'New',
             'description': '',
             'catalog': '',
-            'schema': ''
+            'schema': '',
+            'git_url': ''
         }]
         print("New items after project creation:", new_items)  # Debug print
      
@@ -129,11 +131,12 @@ def register_callbacks(app):
         State("project-description", "value"),
         State("project-catalog", "value"),
         State("project-schema", "value"),
+        State("project-git-url", "value"),
         State("list-store", "data"),
         State({"type": "list-group-item", "index": ALL}, "active"),
         prevent_initial_call=True
     )
-    def update_project_callback(update_clicks, name, description, catalog, schema,
+    def update_project_callback(update_clicks, name, description, catalog, schema, git_url,
                               store_data, active_states):
         # choose index
         try:
@@ -144,7 +147,7 @@ def register_callbacks(app):
             return no_update
         project_item = store_data.get('items', [])[idx]
         project_id = project_item.get('id')
-        updated = update_project(project_id, name, description, catalog, schema)
+        updated = update_project(project_id, name, description, catalog, schema, git_url)
         if updated is None:
             return no_update
         # Refresh list
@@ -157,7 +160,8 @@ def register_callbacks(app):
                     'text': rec.get('name'),
                     'description': rec.get('description'),
                     'catalog': rec.get('catalog'),
-                    'schema': rec.get('schema')
+                    'schema': rec.get('schema'),
+                    'git_url': rec.get('git_url')
                 })
        
         return {'items': items, "active_project_id": project_id}
@@ -178,6 +182,7 @@ def register_callbacks(app):
         Output("project-description", "value"),
         Output("project-catalog", "value"),
         Output("project-schema", "value"),
+        Output("project-git-url", "value"),
         Input({"type": "list-group-item", "index": ALL}, "active"),
         State("list-store", "data"),
         prevent_initial_call=True
@@ -201,7 +206,8 @@ def register_callbacks(app):
             project.get('text', ''),
             project.get('description', ''),
             project.get('catalog', ''),
-            project.get('schema', '')
+            project.get('schema', ''),
+            project.get('git_url', '')
         )
 
     @app.callback(
@@ -645,7 +651,8 @@ def register_callbacks(app):
                     'text': rec.get('name'),
                     'description': rec.get('description'),
                     'catalog': rec.get('catalog'),
-                    'schema': rec.get('schema')
+                    'schema': rec.get('schema'),
+                    'git_url': rec.get('git_url')
                 })
         # Set active project to first item if available, otherwise None
         active_project_id = items[0]['id'] if items else None
@@ -1007,10 +1014,25 @@ def register_callbacks(app):
         # --- 4. Get Job Details (Dataset Target, Git Info, etc.) --- #
         dataset_details = get_dataset_details(selected_ds_id)
         project_details = get_project_from_store(proj_store, project_id)
-        git_details = get_project_git_details(project_id) # Uses placeholder/env vars for now
+        
+        # Get base git details (provider, branch, notebook_path from env/fallbacks in db.py)
+        # and potentially a DB-fetched or default git_url if not in project_details
+        raw_git_details = get_project_git_details(project_id)
 
         if not dataset_details or not project_details:
             return dbc.Alert("Error: Could not retrieve necessary project/dataset details.", color="danger")
+
+        # Prioritize git_url from the project form (via store) if available
+        git_url_from_store = project_details.get('git_url')
+        final_git_url = git_url_from_store if git_url_from_store else raw_git_details.get('git_url')
+        
+        # Construct final git_details, prioritizing store's git_url
+        final_git_details = {
+            "git_url": final_git_url,
+            "git_provider": raw_git_details.get('git_provider'),
+            "git_branch": raw_git_details.get('git_branch'),
+            "notebook_path": raw_git_details.get('notebook_path')
+        }
 
         target_variable = dataset_details.get('target')
         training_table = dataset_details.get('training_table_name')
@@ -1066,10 +1088,10 @@ def register_callbacks(app):
                     training_table_name=training_table,
                     eval_table_name=eval_table, # Pass the retrieved eval table name
                     # --- End pass correct table names --- #
-                    git_url=git_details['git_url'],
-                    git_provider=git_details['git_provider'],
-                    git_branch=git_details['git_branch'],
-                    notebook_path=git_details['notebook_path']
+                    git_url=final_git_details['git_url'],
+                    git_provider=final_git_details['git_provider'],
+                    git_branch=final_git_details['git_branch'],
+                    notebook_path=final_git_details['notebook_path']
                     # Pass merged parameters to the notebook task
                     # This assumes create_training_job is updated or handles extra kwargs
                     # to pass them to the notebook_task.base_parameters
@@ -1119,43 +1141,67 @@ def register_callbacks(app):
 
         project_id = proj_store.get('active_project_id')
         if not project_id:
-             # Return a row indicating selection needed
-            return html.Tr(html.Td("Select a project to view MLflow runs.", colSpan=5))
+            return html.Tr(html.Td("Select a project to view MLflow runs.", colSpan=7))
 
         project_details = get_project_from_store(proj_store, project_id)
         if not project_details:
             print(f"Error: Could not find details for project ID {project_id} in store.")
-             # Return error row
-            return html.Tr(html.Td("Error retrieving project details.", colSpan=5))
+            return html.Tr(html.Td("Error retrieving project details.", colSpan=7))
 
         base_experiment_name = project_details.get('text')
+        catalog = project_details.get('catalog')
+        schema = project_details.get('schema')
+
         if not base_experiment_name:
-             # Return warning row
-            return html.Tr(html.Td("Project name is missing.", colSpan=5))
+            return html.Tr(html.Td("Project name is missing.", colSpan=7))
 
-        print(f"Fetching MLflow runs for base experiment: {base_experiment_name}")
-        runs, experiment_id, error_msg = get_experiment_runs(base_experiment_name)
-
-        # --- Modification START ---
-        # If there was an error fetching runs (e.g., experiment not found, connection issue)
-        # return an empty list to make the table blank.
-        if error_msg:
-            print(f"MLflow fetch error, leaving list blank: {error_msg}")
-            return [] # Return empty list instead of error row
+        # --- Determine target_model_name --- START ---
+        # First, get runs without model info to find a dataset name
+        pre_runs, _, pre_error_msg = get_experiment_runs(base_experiment_name) # No target_model_name yet
         
-        # Handle the case where get_experiment_runs might return None for runs unexpectedly
-        # although the previous check should catch most errors.
-        if runs is None: 
-            print("MLflow runs list is None unexpectedly, leaving list blank.")
-            return [] # Return empty list instead of error row
-        # --- Modification END ---
+        target_model_name = None
+        dataset_name_for_model = None
 
-        # If the experiment exists but has no runs, show the "No runs found" message.
+        if pre_error_msg:
+            print(f"MLflow fetch error (pre-fetch for dataset name): {pre_error_msg}")
+            # Proceed without target_model_name, table will show N/A for model columns
+        elif pre_runs:
+            for pre_run in pre_runs:
+                pre_run_data = pre_run.get('data', {})
+                pre_tags = {tag['key']: tag['value'] for tag in pre_run_data.get('tags', [])}
+                job_id_str = pre_tags.get('mlflow.databricks.jobID')
+                if job_id_str:
+                    try:
+                        dataset_name_for_model = get_dataset_name_by_job_id(int(job_id_str))
+                        if dataset_name_for_model:
+                            break # Found a dataset name
+                    except ValueError:
+                        pass # Invalid job ID format
+                    except Exception as e:
+                        print(f"Error looking up dataset by job ID {job_id_str} for model naming: {e}")
+            
+            if dataset_name_for_model and catalog and schema:
+                sanitized_dataset_name = dataset_name_for_model.replace(" ", "_").replace("-", "_") # Basic sanitization
+                target_model_name = f"{catalog}.{schema}.{sanitized_dataset_name}"
+                print(f"Constructed target_model_name: {target_model_name}")
+            else:
+                print("Could not determine dataset name for model, or catalog/schema missing.")
+        # --- Determine target_model_name --- END ---
+
+        print(f"Fetching MLflow runs for base experiment: {base_experiment_name}, target model: {target_model_name}")
+        runs, experiment_id, error_msg = get_experiment_runs(base_experiment_name, target_model_name=target_model_name)
+
+        if error_msg:
+            print(f"MLflow fetch error: {error_msg}")
+            return html.Tr(html.Td(error_msg, colSpan=7))
+        
+        if runs is None:
+            print("MLflow runs list is None unexpectedly after main fetch.")
+            return html.Tr(html.Td("Error fetching runs.", colSpan=7))
+
         if not runs:
-             # Return info row
-            return html.Tr(html.Td("No runs found for this experiment.", colSpan=5))
+            return html.Tr(html.Td("No runs found for this experiment.", colSpan=7))
 
-        # Format runs into Table Rows
         table_rows = []
         host = os.getenv("DATABRICKS_HOST") 
         if host and not host.startswith('https://'):
@@ -1164,15 +1210,12 @@ def register_callbacks(app):
         for run in runs: 
             run_info = run.get('info', {})
             run_data = run.get('data', {})
-            run_id = run_info.get('run_id', 'N/A') # Get Run ID
+            run_id = run_info.get('run_id', 'N/A')
             
-            # --- Get Tags (Job ID, Job Run ID) --- #
             tags = {tag['key']: tag['value'] for tag in run_data.get('tags', [])}
             job_id_str = tags.get('mlflow.databricks.jobID')
             job_run_id_str = tags.get('mlflow.databricks.jobRunID')
-            # --- End Tags --- #
 
-            # --- Construct Source Link (Job Run URL) --- #
             source_link = "#" 
             link_text = "Source Info Missing"
             if host and job_id_str and job_run_id_str:
@@ -1181,21 +1224,15 @@ def register_callbacks(app):
                 link_text = f"run {job_run_id_str} of job {job_id_str}"
             elif job_id_str and job_run_id_str: 
                  link_text = f"run {job_run_id_str} of job {job_id_str} (Link Unavailable)"
-            # --- End Source Link Construction --- #
 
-            # --- Construct Run ID Link (MLflow Run URL) --- #
-            mlflow_run_link = "#" # Default fallback
+            mlflow_run_link = "#" 
             if host and experiment_id and run_id != 'N/A':
                  host_cleaned = host.rstrip('/')
                  mlflow_run_link = f"{host_cleaned}/ml/experiments/{experiment_id}/runs/{run_id}"
-            # --- End Run ID Link Construction --- #
 
-            # --- Cells: Source (linked), Run ID (linked), Metrics, Dataset --- # 
             source_cell = html.Td(html.A(link_text, href=source_link, target="_blank"))
-            # Make Run ID a hyperlink using the MLflow run URL
             run_id_cell = html.Td(html.A(run_id, href=mlflow_run_link, target="_blank")) 
 
-            # --- Format Metrics --- #
             metrics_str = "N/A"
             metrics_list = run_data.get('metrics', []) 
             if metrics_list:
@@ -1205,53 +1242,51 @@ def register_callbacks(app):
                     if metric.get('key') and metric.get('value') is not None
                 ])
             metrics_cell = html.Td(metrics_str)
-            # --- End Metrics --- #
 
-            # --- Get Dataset Name via Job ID from Tags --- #
-            dataset_name = "N/A" 
+            dataset_name_display = "N/A" 
             if job_id_str:
                 try:
-                    job_id_int = int(job_id_str) # Renamed to avoid conflict if job_id is used later
-                    dataset_name_from_db = get_dataset_name_by_job_id(job_id_int)
-                    dataset_name = dataset_name_from_db if dataset_name_from_db else "Dataset Not Found"
+                    dataset_name_from_db = get_dataset_name_by_job_id(int(job_id_str))
+                    dataset_name_display = dataset_name_from_db if dataset_name_from_db else "Dataset Not Found"
                 except ValueError:
-                    dataset_name = "Invalid Job ID Tag"
+                    dataset_name_display = "Invalid Job ID Tag"
                 except Exception as e:
                     print(f"Error looking up dataset by job ID {job_id_str}: {e}")
-                    dataset_name = "DB Lookup Error"
+                    dataset_name_display = "DB Lookup Error"
             else:
-                 dataset_name = "Job ID Tag Missing"
+                 dataset_name_display = "Job ID Tag Missing"
                  
-            dataset_cell = html.Td(dataset_name)
-            # --- End Dataset Name --- #
+            dataset_cell = html.Td(dataset_name_display)
 
-            # --- Create Register Model Button --- #
-            model_source = f"runs:/{run_id}/model" # Standard MLflow model source format
+            # --- Get Registered Model Info --- 
+            reg_model_name = run.get('registered_model_name', 'N/A')
+            reg_model_version = run.get('registered_model_version', 'N/A')
+            model_name_cell = html.Td(reg_model_name)
+            model_version_cell = html.Td(reg_model_version)
+            # --- End Registered Model Info --- 
 
-            # Ensure dataset_name is a string for the data-* attribute.
-            # If dataset_name is None or not a string (e.g. from a failed lookup), provide a default.
-            button_dataset_name = dataset_name if isinstance(dataset_name, str) else "UnknownDataset"
+            model_source = f"runs:/{run_id}/model"
+            button_dataset_name = dataset_name_display if isinstance(dataset_name_display, str) else "UnknownDataset"
+
+            # Disable button if model name and version are already populated for this run
+            button_disabled = bool(reg_model_name and reg_model_name != 'N/A')
 
             register_button = html.Button(
                 "Register Model",
                 id={
                     'type': 'register-model-button', 
-                    'index': run_id, # Keep run_id as index for pattern matching n_clicks
+                    'index': run_id, 
                     'datasetname': button_dataset_name,
                     'modelsource': model_source
                 },
                 n_clicks=0,
-                disabled=False,  # Initially enabled; future logic can disable if already registered
-                className="btn btn-primary" # Style as a Bootstrap primary button
-                # Removed data-* attributes as they are now in the id
+                disabled=button_disabled, # Updated disabled state
+                className="btn btn-primary"
             )
             actions_cell = html.Td(register_button)
-            # --- End Create Register Model Button --- #
 
-            # --- Append Row --- #
-            # Reorder: Dataset, Metrics, Run ID, Source, Actions
-            table_rows.append(html.Tr([dataset_cell, metrics_cell, run_id_cell, source_cell, actions_cell]))
-            # --- End Row --- #
+            # Reorder: Dataset, Metrics, Run ID, Source, Reg. Model, Version, Actions
+            table_rows.append(html.Tr([dataset_cell, metrics_cell, run_id_cell, source_cell, model_name_cell, model_version_cell, actions_cell]))
 
         return table_rows
     

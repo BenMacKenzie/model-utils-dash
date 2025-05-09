@@ -44,10 +44,10 @@ def fetch_data(query, params=None):
 def get_projects():
     """Fetches all projects from the database."""
     return fetch_data(
-        "SELECT id, name, description, catalog, schema FROM projects ORDER BY name ASC;"
+        "SELECT id, name, description, catalog, schema, git_url FROM projects ORDER BY name ASC;"
     )
 
-def create_project(name, description, catalog, schema):
+def create_project(name, description, catalog, schema, git_url):
     """
     Inserts a new project into the database and returns the new project ID.
     """
@@ -61,11 +61,11 @@ def create_project(name, description, catalog, schema):
         # Insert new project and return its ID
         cur.execute(
             """
-            INSERT INTO projects (name, description, catalog, schema)
-            VALUES (%s, %s, %s, %s)
+            INSERT INTO projects (name, description, catalog, schema, git_url)
+            VALUES (%s, %s, %s, %s, %s)
             RETURNING id;
             """,
-            (name, description, catalog, schema)
+            (name, description, catalog, schema, git_url)
         )
         project_id = cur.fetchone()[0]
         print(f"Successfully created project with ID: {project_id}")  # Debug log
@@ -83,7 +83,7 @@ def create_project(name, description, catalog, schema):
             conn.close()
         return None
 
-def update_project(project_id, name, description, catalog, schema):
+def update_project(project_id, name, description, catalog, schema, git_url):
     """
     Updates an existing project in the database and returns the project ID if successful.
     """
@@ -99,10 +99,11 @@ def update_project(project_id, name, description, catalog, schema):
             SET name = %s,
                 description = %s,
                 catalog = %s,
-                schema = %s
+                schema = %s,
+                git_url = %s
             WHERE id = %s;
             """,
-            (name, description, catalog, schema, project_id)
+            (name, description, catalog, schema, git_url, project_id)
         )
         conn.commit()
         cur.close()
@@ -399,15 +400,36 @@ def get_dataset_details(dataset_id):
     return None
 
 def get_project_git_details(project_id):
-    """ Fetches git details for a given project ID (assuming they are stored or configured). """
-    # Placeholder: In a real app, these might come from config or the projects table
-    # For now, returning dummy data or data from environment variables
-    # You might need to add columns to the 'projects' table for these
+    """ Fetches git details for a given project ID.
+        - git_url is fetched from the projects table.
+        - Other details (provider, branch, notebook_path) use environment variables with fallbacks.
+    """
+    conn = None
+    project_git_url_from_db = None  # Variable to store git_url fetched from DB
+
+    try:
+        conn = get_db_connection()
+        if conn:
+            # Use RealDictCursor to get results as dictionaries
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("SELECT git_url FROM projects WHERE id = %s", (project_id,))
+                result = cur.fetchone()
+                if result and result['git_url']:  # Check if result and git_url are not None
+                    project_git_url_from_db = result['git_url']
+    except Exception as e:
+        print(f"Error fetching git_url for project ID {project_id} from database: {e}")
+    finally:
+        if conn:
+            conn.close()
+
+    # Determine the final git_url: use DB value if available, else fallback
+    final_git_url = project_git_url_from_db if project_git_url_from_db else os.getenv("DB_GIT_URL", "https://github.com/BenMacKenzie/db-model-trainer")
+
     return {
-        "git_url": "https://github.com/BenMacKenzie/db-model-trainer",
-        "git_provider": "gitHub",
-        "git_branch": "main",
-        "notebook_path": "notebooks/01_Build_Model"
+        "git_url": final_git_url,
+        "git_provider": os.getenv("DB_GIT_PROVIDER", "gitHub"),
+        "git_branch": os.getenv("DB_GIT_BRANCH", "main"),
+        "notebook_path": os.getenv("DB_NOTEBOOK_PATH", "notebooks/01_Build_Model")
     }
 
 def get_dataset_name_by_id(dataset_id):

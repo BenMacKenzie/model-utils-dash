@@ -42,10 +42,12 @@ def create_train_tab():
                                 html.Th("Metrics"),
                                 html.Th("Run ID"),
                                 html.Th("Source"),
+                                html.Th("Reg. Model"),
+                                html.Th("Version"),
                                 html.Th("Actions")
                             ])),
                             html.Tbody(id="train-mlflow-runs-list", children=[
-                                html.Tr(html.Td(children=["Select a project to see runs."], colSpan=5))
+                                html.Tr(html.Td(children=["Select a project to see runs."], colSpan=7))
                             ])
                         ], bordered=True, hover=True, responsive=True, striped=True)
                     )

@@ -20,6 +20,7 @@ def create_project_tab():
                 'description': rec.get('description'),
                 'catalog': rec.get('catalog'),
                 'schema': rec.get('schema'),
+                'git_url': rec.get('git_url'),
             }
             for rec in records
         ]
@@ -68,6 +69,10 @@ def create_project_tab():
         html.Div([
             dbc.Label("Schema", html_for="project-schema"),
             dbc.Input(type="text", id="project-schema", placeholder="Enter schema"),
+        ], className="mb-3"),
+        html.Div([
+            dbc.Label("Git URL", html_for="project-git-url"),
+            dbc.Input(type="text", id="project-git-url", placeholder="Enter Git URL"),
         ], className="mb-3"),
         html.Div([
             dbc.Button("Create Project", id="create-project-button", color="success", className="me-2"),

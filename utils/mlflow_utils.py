@@ -49,18 +49,23 @@ def get_runs(experiment_id, host, token):
         print(f"Error getting runs: {str(e)}")
         return None
 
-def get_experiment_runs(experiment_name):
+def get_experiment_runs(experiment_name, target_model_name=None):
     """
     Get experiment details by name and its runs using the Databricks REST API.
+    If target_model_name is provided, this function will also attempt to find and attach
+    version information for that specific registered model if its versions are linked to the runs.
     
     Args:
-        experiment_name (str): The name of the experiment to retrieve
+        experiment_name (str): The name of the experiment to retrieve.
+        target_model_name (str, optional): The fully qualified Unity Catalog name of a specific
+                                           model to look for (e.g., 'catalog.schema.model_name').
+                                           If provided, linked version info will be added to runs.
         
     Returns:
         tuple: (list_of_run_dicts, experiment_id, error_message_or_None)
                Returns ([], None, message) if experiment not found.
                Returns (None, None, message) if there was an API or other error.
-               Returns (list_of_run_dicts, experiment_id, None) on success.
+               Returns (list_of_run_dicts_with_optional_model_info, experiment_id, None) on success.
     """
     try:
         # Get the host and token from environment variables
@@ -105,8 +110,73 @@ def get_experiment_runs(experiment_name):
             
             if runs is None: # Handle error from get_runs
                 return None, experiment_id, "Error fetching runs for the experiment."
+
+            # Initialize model info keys for all runs
+            processed_runs = []
+            if not isinstance(runs, list):
+                # If runs is not a list (e.g., None after an error in get_runs or unexpected API response)
+                # it might have already been handled, but as a safeguard:
+                print(f"Warning: Expected a list of runs, but got {type(runs)}. Aborting model version enrichment.")
+                return runs, experiment_id, "Runs data is not in expected list format."
+
+
+            for run_item in runs:
+                if isinstance(run_item, dict):
+                    run_item['registered_model_name'] = None
+                    run_item['registered_model_version'] = None
+                    processed_runs.append(run_item)
+                else:
+                    print(f"Warning: Skipping non-dict item in runs list: {run_item}")
+                    # Optionally decide whether to append or filter out non-dict items
+                    # For now, let's append to keep the original structure as much as possible
+                    # if the caller expects a list of the same length as original runs
+                    processed_runs.append(run_item)
+
+
+            # If a specific model name is targeted, try to map its versions to the runs
+            if target_model_name and processed_runs:
+                try:
+                    mlflow.set_registry_uri('databricks-uc') # Ensure UC registry
+                    client = mlflow.tracking.MlflowClient()
+                    
+                    model_versions_for_target = client.search_model_versions(filter_string=f"name='{target_model_name}'")
+                    
+                    run_to_latest_mv_map = {}
+                    for mv in model_versions_for_target:
+                        if mv.run_id:
+                            if mv.run_id not in run_to_latest_mv_map or \
+                               mv.last_updated_timestamp > run_to_latest_mv_map[mv.run_id].last_updated_timestamp:
+                                run_to_latest_mv_map[mv.run_id] = mv
+                                
+                    for run_dict in processed_runs:
+                        if not isinstance(run_dict, dict): 
+                            continue 
+                        
+                        current_run_id = None
+                        if 'info' in run_dict and isinstance(run_dict['info'], dict):
+                            current_run_id = run_dict['info'].get('run_id')
+
+                        if current_run_id and current_run_id in run_to_latest_mv_map:
+                            latest_mv_for_run = run_to_latest_mv_map[current_run_id]
+                            run_dict['registered_model_name'] = latest_mv_for_run.name
+                            run_dict['registered_model_version'] = latest_mv_for_run.version
+                            
+                except mlflow.exceptions.MlflowException as e:
+                    msg = f"Warning: MLflow API error when searching/mapping versions for model '{target_model_name}': {str(e)}"
+                    print(msg)
+                    for run_dict in processed_runs:
+                         if isinstance(run_dict, dict):
+                            run_dict['model_search_error'] = msg # Add error info to runs
+
+                except Exception as e:
+                    tb_str = traceback.format_exc()
+                    msg = f"Warning: Unexpected error when searching/mapping versions for model '{target_model_name}': {str(e)}\\n{tb_str}"
+                    print(msg)
+                    for run_dict in processed_runs:
+                        if isinstance(run_dict, dict):
+                            run_dict['model_search_error'] = msg # Add error info to runs
                 
-            return runs, experiment_id, None # Return runs, experiment_id, and no error
+            return processed_runs, experiment_id, None
             
         elif response.status_code == 404: # Specific handling for experiment not found
              msg = f"Experiment '{experiment_name}' not found."
