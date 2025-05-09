@@ -10,6 +10,8 @@ CREATE TABLE if not exists projects (
     description TEXT NOT NULL,
     catalog VARCHAR(255) NOT NULL,
     schema VARCHAR(255) NOT NULL,
+    git_url VARCHAR(255) NOT NULL,
+    training_notebook VARCHAR(255) NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 

@@ -19,6 +19,10 @@ from utils.mlflow_utils import get_experiment_runs # Ensure correct function is 
 from utils.mlflow_utils import register_model_version # Added for model registration
 # --- End Add imports --- #
 
+# --- Import for fetching notebook files --- #
+from components.tabs.project_tab import fetch_notebook_files_from_github
+# --- End Import --- #
+
 # --- Helper function for datetime formatting (optional) --- #
 from datetime import datetime
 def format_timestamp(ts):
@@ -42,12 +46,9 @@ def register_callbacks(app):
     def update_store_on_refresh(_):
         print("update_store_on_refresh")
         df = get_projects()
-        # Convert to items for storage and display
-        
         items = []
         if not df.empty:
             records = df.to_dict(orient='records')
-            # Build list of projects with full details
             items = [
                 {
                     'id': int(rec['id']),
@@ -55,11 +56,12 @@ def register_callbacks(app):
                     'description': rec.get('description'),
                     'catalog': rec.get('catalog'),
                     'schema': rec.get('schema'),
-                    'git_url': rec.get('git_url')
+                    'git_url': rec.get('git_url'),
+                    'training_notebook': rec.get('training_notebook')
                 }
                 for rec in records
             ]
-        active_project_id = items[0]['id'] if items else None# Store component to maintain the list of projects
+        active_project_id = items[0]['id'] if items else None
         print("items", items)
         return {'items': items, "active_project_id": active_project_id  }
 
@@ -102,12 +104,13 @@ def register_callbacks(app):
     @app.callback(
         Output("list-store", "data", allow_duplicate=True),
         Input("create-project-button", "n_clicks"),
+        State("project-notebook-dropdown", "value"),
         State("list-store", "data"),
         prevent_initial_call=True
     )
-    def create_project_callback(create_clicks, store_data):
+    def create_project_callback(create_clicks, training_notebook_file, store_data):
         print("create_project_callback")
-        project_id = create_project("New", "", "", "", "")
+        project_id = create_project("New", "", "", "", "", training_notebook=training_notebook_file)
         if project_id is None:
             return no_update, no_update
         # Append stub
@@ -117,7 +120,8 @@ def register_callbacks(app):
             'description': '',
             'catalog': '',
             'schema': '',
-            'git_url': ''
+            'git_url': '',
+            'training_notebook': training_notebook_file
         }]
         print("New items after project creation:", new_items)  # Debug print
      
@@ -132,11 +136,13 @@ def register_callbacks(app):
         State("project-catalog", "value"),
         State("project-schema", "value"),
         State("project-git-url", "value"),
+        State("project-notebook-dropdown", "value"),
         State("list-store", "data"),
         State({"type": "list-group-item", "index": ALL}, "active"),
         prevent_initial_call=True
     )
     def update_project_callback(update_clicks, name, description, catalog, schema, git_url,
+                              training_notebook_file,
                               store_data, active_states):
         # choose index
         try:
@@ -147,7 +153,7 @@ def register_callbacks(app):
             return no_update
         project_item = store_data.get('items', [])[idx]
         project_id = project_item.get('id')
-        updated = update_project(project_id, name, description, catalog, schema, git_url)
+        updated = update_project(project_id, name, description, catalog, schema, git_url, training_notebook_file)
         if updated is None:
             return no_update
         # Refresh list
@@ -161,7 +167,8 @@ def register_callbacks(app):
                     'description': rec.get('description'),
                     'catalog': rec.get('catalog'),
                     'schema': rec.get('schema'),
-                    'git_url': rec.get('git_url')
+                    'git_url': rec.get('git_url'),
+                    'training_notebook': rec.get('training_notebook')
                 })
        
         return {'items': items, "active_project_id": project_id}
@@ -183,21 +190,21 @@ def register_callbacks(app):
         Output("project-catalog", "value"),
         Output("project-schema", "value"),
         Output("project-git-url", "value"),
-        Input({"type": "list-group-item", "index": ALL}, "active"),
-        State("list-store", "data"),
+        Output("project-notebook-dropdown", "value"),
+        Input("list-store", "data"),
         prevent_initial_call=True
     )
-    def populate_form(active_states, store_data):
+    def populate_form(store_data):
         # Populate the form inputs based on the selected project
-        print("active_states", active_states)
-        if not store_data or not active_states:
+        print("active_states", store_data)
+        if not store_data or not store_data.get("active_project_id"):
             raise PreventUpdate
         try:
-            idx = active_states.index(True)
+            idx = store_data.get("active_project_id")
         except ValueError:
             raise PreventUpdate
         # Use the helper function to get the project based on active_project_id
-        project = get_project_from_store(store_data, store_data.get('active_project_id'))
+        project = get_project_from_store(store_data, idx)
         if not project:
             print("No active project found in store")
             raise PreventUpdate
@@ -207,7 +214,8 @@ def register_callbacks(app):
             project.get('description', ''),
             project.get('catalog', ''),
             project.get('schema', ''),
-            project.get('git_url', '')
+            project.get('git_url', ''),
+            project.get('training_notebook', None)
         )
 
     @app.callback(
@@ -652,7 +660,8 @@ def register_callbacks(app):
                     'description': rec.get('description'),
                     'catalog': rec.get('catalog'),
                     'schema': rec.get('schema'),
-                    'git_url': rec.get('git_url')
+                    'git_url': rec.get('git_url'),
+                    'training_notebook': rec.get('training_notebook')
                 })
         # Set active project to first item if available, otherwise None
         active_project_id = items[0]['id'] if items else None
@@ -960,8 +969,6 @@ def register_callbacks(app):
         Output("train-status-output", "children"),
         Input("train-run-button", "n_clicks"),
         State("list-store", "data"), # Get project ID
-        # State("dataset-store", "data"), # No longer needed for finding selected ID
-        # State({"type": "dataset-group-item", "index": ALL}, "active"), # Use dropdown value instead
         State("train-dataset-dropdown", "value"), # Get selected dataset ID from dropdown
         State("train-parameters-input", "value"), # Get user-provided params
         prevent_initial_call=True
@@ -1392,4 +1399,22 @@ def register_callbacks(app):
         else:
             # This case should ideally not be hit if error_msg is None and registration was successful
             return dbc.Alert(f"Model registration for '{model_name_str}' returned an unexpected response format. API Response: {response_data}", color="warning")
+    
+    # --- Callback to update notebook dropdown in Project Tab --- #
+    @app.callback(
+        Output("project-notebook-dropdown", "options"),
+        Input("project-git-url", "value"),
+        prevent_initial_call=True
+    )
+    def update_notebook_dropdown_options(git_url):
+        if not git_url:
+            return [] # Return empty options, value will be handled by populate_form or remain as is
+        
+        notebook_options = fetch_notebook_files_from_github(git_url, folder_path="notebooks")
+        
+        if not notebook_options:
+            return [{"label": "No files found in 'notebooks' folder or error", "value": "", "disabled": True}]
+
+        return notebook_options
+    # --- End Notebook Dropdown Callback --- #
     

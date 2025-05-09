@@ -44,14 +44,14 @@ def fetch_data(query, params=None):
 def get_projects():
     """Fetches all projects from the database."""
     return fetch_data(
-        "SELECT id, name, description, catalog, schema, git_url FROM projects ORDER BY name ASC;"
+        "SELECT id, name, description, catalog, schema, git_url, training_notebook FROM projects ORDER BY name ASC;"
     )
 
-def create_project(name, description, catalog, schema, git_url):
+def create_project(name, description, catalog, schema, git_url, training_notebook=None):
     """
     Inserts a new project into the database and returns the new project ID.
     """
-    print(f"Attempting to create project with name: {name}")  # Debug log
+    print(f"Attempting to create project with name: {name}, training_notebook: {training_notebook}")  # Debug log
     conn = get_db_connection()
     if conn is None:
         print("Failed to establish database connection")  # Debug log
@@ -61,11 +61,11 @@ def create_project(name, description, catalog, schema, git_url):
         # Insert new project and return its ID
         cur.execute(
             """
-            INSERT INTO projects (name, description, catalog, schema, git_url)
-            VALUES (%s, %s, %s, %s, %s)
+            INSERT INTO projects (name, description, catalog, schema, git_url, training_notebook)
+            VALUES (%s, %s, %s, %s, %s, %s)
             RETURNING id;
             """,
-            (name, description, catalog, schema, git_url)
+            (name, description, catalog, schema, git_url, training_notebook)
         )
         project_id = cur.fetchone()[0]
         print(f"Successfully created project with ID: {project_id}")  # Debug log
@@ -83,7 +83,7 @@ def create_project(name, description, catalog, schema, git_url):
             conn.close()
         return None
 
-def update_project(project_id, name, description, catalog, schema, git_url):
+def update_project(project_id, name, description, catalog, schema, git_url, training_notebook=None):
     """
     Updates an existing project in the database and returns the project ID if successful.
     """
@@ -100,10 +100,11 @@ def update_project(project_id, name, description, catalog, schema, git_url):
                 description = %s,
                 catalog = %s,
                 schema = %s,
-                git_url = %s
+                git_url = %s,
+                training_notebook = %s
             WHERE id = %s;
             """,
-            (name, description, catalog, schema, git_url, project_id)
+            (name, description, catalog, schema, git_url, training_notebook, project_id)
         )
         conn.commit()
         cur.close()
@@ -401,35 +402,43 @@ def get_dataset_details(dataset_id):
 
 def get_project_git_details(project_id):
     """ Fetches git details for a given project ID.
-        - git_url is fetched from the projects table.
-        - Other details (provider, branch, notebook_path) use environment variables with fallbacks.
+        - git_url and training_notebook are fetched from the projects table.
+        - Other details (provider, branch) use environment variables with fallbacks.
     """
     conn = None
-    project_git_url_from_db = None  # Variable to store git_url fetched from DB
+    project_git_url_from_db = None
+    project_training_notebook_from_db = None # Added for training_notebook
 
     try:
         conn = get_db_connection()
         if conn:
             # Use RealDictCursor to get results as dictionaries
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                cur.execute("SELECT git_url FROM projects WHERE id = %s", (project_id,))
+                # Fetch both git_url and training_notebook
+                cur.execute("SELECT git_url, training_notebook FROM projects WHERE id = %s", (project_id,))
                 result = cur.fetchone()
-                if result and result['git_url']:  # Check if result and git_url are not None
-                    project_git_url_from_db = result['git_url']
+                if result:
+                    if result['git_url']:
+                        project_git_url_from_db = result['git_url']
+                    if result['training_notebook']: # Check if training_notebook is not None
+                        project_training_notebook_from_db = result['training_notebook']
     except Exception as e:
-        print(f"Error fetching git_url for project ID {project_id} from database: {e}")
+        print(f"Error fetching git_url/training_notebook for project ID {project_id} from database: {e}")
     finally:
         if conn:
             conn.close()
 
     # Determine the final git_url: use DB value if available, else fallback
     final_git_url = project_git_url_from_db if project_git_url_from_db else os.getenv("DB_GIT_URL", "https://github.com/BenMacKenzie/db-model-trainer")
+    # Determine final notebook_path: use DB value if available, else fallback
+    final_notebook_path = project_training_notebook_from_db if project_training_notebook_from_db else os.getenv("DB_NOTEBOOK_PATH", "notebooks/01_Build_Model")
 
     return {
         "git_url": final_git_url,
         "git_provider": os.getenv("DB_GIT_PROVIDER", "gitHub"),
         "git_branch": os.getenv("DB_GIT_BRANCH", "main"),
-        "notebook_path": os.getenv("DB_NOTEBOOK_PATH", "notebooks/01_Build_Model")
+        "notebook_path": final_notebook_path # Use the determined notebook_path
+        # "training_notebook": os.getenv("DB_TRAINING_NOTEBOOK_PATH", "notebooks/01_Build_Model") # This line can be removed
     }
 
 def get_dataset_name_by_id(dataset_id):

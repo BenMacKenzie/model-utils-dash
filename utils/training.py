@@ -5,6 +5,15 @@ def create_training_job(job_name, experiment_name, target, training_table_name, 
     
     workspace_client = WorkspaceClient()
     print(eval_table_name)
+    # print(notebook_path) # Original print statement
+
+    # Remove .py extension if present for the SDK path
+    if notebook_path and notebook_path.endswith(".py"):
+        notebook_path_for_sdk = notebook_path[:-3]
+    else:
+        notebook_path_for_sdk = notebook_path
+    
+    print(f"[DEBUG] Original notebook_path: '{notebook_path}', Path for Databricks SDK: '{notebook_path_for_sdk}'")
 
     job =  workspace_client.jobs.create(
         name=job_name,
@@ -17,7 +26,7 @@ def create_training_job(job_name, experiment_name, target, training_table_name, 
             Task(
                 task_key="TrainModel",
                 notebook_task=NotebookTask(
-                    notebook_path=notebook_path,
+                    notebook_path=f"notebooks/{notebook_path_for_sdk}", # Use the modified path
                     
                     base_parameters={
                         "experiment_name": experiment_name,
