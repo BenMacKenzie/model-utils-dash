@@ -18,7 +18,7 @@ DB_SSLMODE = os.getenv("DB_SSLMODE", "require")
 # DB_NAME = "ml_ops"
 # DB_USER = "bmac"
 # DB_PASSWORD = "mlops1234"
-# DB_HOST = "instance-aca94a42-c1f9-40a6-9bb4-a46ae4f2e623.database.cloud.databricks.com:5432"
+# DB_HOST = "instance-aca94a42-c1f9-40a6-9bb4-a46ae4f2e623.database.cloud.databricks.com"
 # DB_PORT = "5432"
 
 def get_db_connection():
