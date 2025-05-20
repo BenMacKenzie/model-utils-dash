@@ -48,22 +48,32 @@ def register_callbacks(app):
         df = get_projects()
         items = []
         if not df.empty:
-            records = df.to_dict(orient='records')
-            items = [
-                {
-                    'id': int(rec['id']),
-                    'text': rec.get('name'),
-                    'description': rec.get('description'),
-                    'catalog': rec.get('catalog'),
-                    'schema': rec.get('schema'),
-                    'git_url': rec.get('git_url'),
-                    'training_notebook': rec.get('training_notebook')
-                }
-                for rec in records
-            ]
+            try:
+                records = df.to_dict(orient='records')
+                # Validate and transform records
+                items = []
+                for rec in records:
+                    if isinstance(rec, dict) and 'id' in rec:
+                        items.append({
+                            'id': int(rec['id']),
+                            'text': str(rec.get('name', '')),
+                            'description': str(rec.get('description', '')),
+                            'catalog': str(rec.get('catalog', '')),
+                            'schema': str(rec.get('schema', '')),
+                            'git_url': str(rec.get('git_url', '')),
+                            'training_notebook': str(rec.get('training_notebook', ''))
+                        })
+            except Exception as e:
+                print(f"Error processing project records: {e}")
+                items = []
+                
+        # Set active project to first item if available, otherwise None
         active_project_id = items[0]['id'] if items else None
-        print("items", items)
-        return {'items': items, "active_project_id": active_project_id  }
+        print("Processed items:", items)
+        print("Active project ID:", active_project_id)
+        
+        # Always return a dictionary with both items and active_project_id
+        return {'items': items, "active_project_id": active_project_id}
 
     @app.callback(
         Output("list-group", "children", allow_duplicate=True),
@@ -81,19 +91,44 @@ def register_callbacks(app):
             active_project_id = store_data.get('active_project_id', None)
         elif isinstance(store_data, list):
             new_items = store_data
-            active_project_id = new_items[0]['id'] if new_items else None
+            # More robust handling of active_project_id for list case
+            try:
+                active_project_id = new_items[0].get('id') if new_items and isinstance(new_items[0], dict) else None
+            except (IndexError, AttributeError, KeyError) as e:
+                print(f"Error getting active_project_id from list: {e}")
+                active_project_id = None
         else:
+            print(f"Unexpected store_data type: {type(store_data)}")
             new_items = []
             active_project_id = None
             
+        # Validate items structure
+        valid_items = []
+        for item in new_items:
+            if isinstance(item, dict) and 'id' in item and 'text' in item:
+                valid_items.append(item)
+            else:
+                print(f"Skipping invalid item: {item}")
+        
+        # Create list items only from valid items
         list_items = [
             dbc.ListGroupItem(
                 itm['text'],
                 id={"type": "list-group-item", "index": itm['id']},
                 action=True,
                 active=(itm['id'] == active_project_id)
-            ) for itm in new_items
+            ) for itm in valid_items
         ]
+        
+        # If no valid items, show a message
+        if not list_items:
+            list_items = [
+                dbc.ListGroupItem(
+                    "No projects found.",
+                    id={"type": "list-group-item", "index": -1},
+                    disabled=True
+                )
+            ]
        
         return list_items
 
@@ -108,7 +143,15 @@ def register_callbacks(app):
         if not ctx.triggered_id or not isinstance(ctx.triggered_id, dict) or ctx.triggered_id.get('type') != 'list-group-item':
             raise PreventUpdate
         project_id = ctx.triggered_id["index"]
-        items = (store_data.get('items', []) or []) 
+        
+        # Handle both list and dictionary cases for store_data
+        if isinstance(store_data, dict):
+            items = store_data.get('items', []) or []
+        elif isinstance(store_data, list):
+            items = store_data
+        else:
+            items = []
+            
         return {'items': items, "active_project_id": project_id}
      
    
@@ -130,24 +173,34 @@ def register_callbacks(app):
         if isinstance(store_data, list):
             store_data = {'items': store_data, 'active_project_id': store_data[0]['id'] if store_data else None}
         
-        project_id = create_project("New", "", "", "", "", training_notebook=training_notebook_file)
+        # Create project with default values for required fields
+        project_id = create_project(
+            name="New Project",  # Default name
+            description="No description",  # Default description
+            catalog="default_catalog",  # Default catalog
+            schema="default_schema",  # Default schema
+            git_url="https://github.com/example/repo",  # Default git URL
+            training_notebook=training_notebook_file or "default_notebook.py"  # Use provided notebook or default
+        )
+        
         if project_id is None:
-            return no_update, no_update
+            print("Failed to create project")
+            return no_update
             
         # Get existing items, ensuring we have a list
         existing_items = store_data.get('items', []) if isinstance(store_data, dict) else store_data
         if not isinstance(existing_items, list):
             existing_items = []
             
-        # Append new item
+        # Append new item with the same default values
         new_items = existing_items + [{
             'id': project_id,
-            'text': 'New',
-            'description': '',
-            'catalog': '',
-            'schema': '',
-            'git_url': '',
-            'training_notebook': training_notebook_file
+            'text': 'New Project',  # Match the name used in create_project
+            'description': 'No description',
+            'catalog': 'default_catalog',
+            'schema': 'default_schema',
+            'git_url': 'https://github.com/example/repo',
+            'training_notebook': training_notebook_file or 'default_notebook.py'
         }]
         print("New items after project creation:", new_items)  # Debug print
      
@@ -203,9 +256,28 @@ def register_callbacks(app):
         Get a project record from the store data by its ID.
         Returns the project dictionary if found, None otherwise.
         """
-        items = store_data.get('items', [])
+        # Handle both list and dictionary cases for store_data
+        if isinstance(store_data, dict):
+            items = store_data.get('items', [])
+        elif isinstance(store_data, list):
+            items = store_data
+        else:
+            return None
+
+        # Debug print to see what we're working with
+        print("Store data items:", items)
+        
         for item in items:
-            if item['id'] == project_id:
+            # Handle both dictionary and object cases, and check for both 'id' and 'index' keys
+            item_id = None
+            if isinstance(item, dict):
+                item_id = item.get('id') or item.get('index')
+            elif hasattr(item, 'id'):
+                item_id = item.id
+            elif hasattr(item, 'index'):
+                item_id = item.index
+                
+            if item_id is not None and item_id == project_id:
                 return item
         return None
 
@@ -221,27 +293,53 @@ def register_callbacks(app):
     )
     def populate_form(store_data):
         # Populate the form inputs based on the selected project
-        print("active_states", store_data)
-        if not store_data or not store_data.get("active_project_id"):
-            raise PreventUpdate
-        try:
-            idx = store_data.get("active_project_id")
-        except ValueError:
-            raise PreventUpdate
-        # Use the helper function to get the project based on active_project_id
-        project = get_project_from_store(store_data, idx)
-        if not project:
-            print("No active project found in store")
-            raise PreventUpdate
+        print("populate_form - store_data:", store_data)
         
-        return (
-            project.get('text', ''),
-            project.get('description', ''),
-            project.get('catalog', ''),
-            project.get('schema', ''),
-            project.get('git_url', ''),
-            project.get('training_notebook', None)
-        )
+        # Handle empty or invalid store_data
+        if not store_data:
+            # Return empty values for all form fields
+            return '', '', '', '', '', None
+            
+        # Get active project ID, handling both dict and list cases
+        if isinstance(store_data, dict):
+            active_project_id = store_data.get("active_project_id")
+            items = store_data.get('items', [])
+        else:
+            # If it's a list, try to get the first item's ID
+            items = store_data if isinstance(store_data, list) else []
+            active_project_id = items[0].get('id') if items and isinstance(items[0], dict) else None
+            
+        # If no active project or no items, return empty values
+        if not active_project_id or not items:
+            print("No active project ID or items found")
+            return '', '', '', '', '', None
+            
+        # Use the helper function to get the project based on active_project_id
+        project = get_project_from_store(store_data, active_project_id)
+        if not project:
+            print(f"No project found for ID {active_project_id}")
+            return '', '', '', '', '', None
+            
+        # Handle both dictionary and object cases for project
+        if isinstance(project, dict):
+            return (
+                project.get('text', ''),
+                project.get('description', ''),
+                project.get('catalog', ''),
+                project.get('schema', ''),
+                project.get('git_url', ''),
+                project.get('training_notebook', None)
+            )
+        else:
+            # Handle object case
+            return (
+                getattr(project, 'text', ''),
+                getattr(project, 'description', ''),
+                getattr(project, 'catalog', ''),
+                getattr(project, 'schema', ''),
+                getattr(project, 'git_url', ''),
+                getattr(project, 'training_notebook', None)
+            )
 
     @app.callback(
         [Output("dataset-list-group", "children"),

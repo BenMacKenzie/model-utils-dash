@@ -5,15 +5,27 @@ from dotenv import load_dotenv
 from psycopg2.extras import RealDictCursor
 
 # Load database credentials from .env file
-load_dotenv()
+load_dotenv(override=True)
 
 DB_NAME = os.getenv("DB_NAME")
 DB_USER = os.getenv("DB_USER")
 DB_PASSWORD = os.getenv("DB_PASSWORD")
 DB_HOST = os.getenv("DB_HOST")
 DB_PORT = os.getenv("DB_PORT")
+DB_SSLMODE = os.getenv("DB_SSLMODE", "require")
+
+
+# DB_NAME = "ml_ops"
+# DB_USER = "bmac"
+# DB_PASSWORD = "mlops1234"
+# DB_HOST = "instance-aca94a42-c1f9-40a6-9bb4-a46ae4f2e623.database.cloud.databricks.com:5432"
+# DB_PORT = "5432"
 
 def get_db_connection():
+
+    print("(************)")
+    print(DB_NAME, DB_USER, DB_PASSWORD, DB_HOST, DB_PORT, DB_SSLMODE)
+    print("(************)")
     """Establishes a connection to the PostgreSQL database."""
     try:
         conn = psycopg2.connect(
@@ -21,7 +33,8 @@ def get_db_connection():
             user=DB_USER,
             password=DB_PASSWORD,
             host=DB_HOST,
-            port=DB_PORT
+            port=DB_PORT,
+            sslmode=DB_SSLMODE
         )
         return conn
     except Exception as e:
