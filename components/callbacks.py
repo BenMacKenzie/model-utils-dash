@@ -72,9 +72,20 @@ def register_callbacks(app):
     )
     def refresh_project_list(store_data):
         print("refresh_project_list")
-      
-        new_items = (store_data.get('items', []) or []) 
-        active_project_id = store_data.get('active_project_id', None)
+        print("store_data type:", type(store_data))
+        print("store_data:", store_data)
+        
+        # Handle both list and dictionary data structures
+        if isinstance(store_data, dict):
+            new_items = store_data.get('items', []) or []
+            active_project_id = store_data.get('active_project_id', None)
+        elif isinstance(store_data, list):
+            new_items = store_data
+            active_project_id = new_items[0]['id'] if new_items else None
+        else:
+            new_items = []
+            active_project_id = None
+            
         list_items = [
             dbc.ListGroupItem(
                 itm['text'],
@@ -94,6 +105,8 @@ def register_callbacks(app):
         prevent_initial_call=True
     )
     def select_project_callback(_, store_data):
+        if not ctx.triggered_id or not isinstance(ctx.triggered_id, dict) or ctx.triggered_id.get('type') != 'list-group-item':
+            raise PreventUpdate
         project_id = ctx.triggered_id["index"]
         items = (store_data.get('items', []) or []) 
         return {'items': items, "active_project_id": project_id}
@@ -110,11 +123,24 @@ def register_callbacks(app):
     )
     def create_project_callback(create_clicks, training_notebook_file, store_data):
         print("create_project_callback")
+        print("store_data type:", type(store_data))
+        print("store_data:", store_data)
+        
+        # Ensure store_data is a dictionary
+        if isinstance(store_data, list):
+            store_data = {'items': store_data, 'active_project_id': store_data[0]['id'] if store_data else None}
+        
         project_id = create_project("New", "", "", "", "", training_notebook=training_notebook_file)
         if project_id is None:
             return no_update, no_update
-        # Append stub
-        new_items = (store_data.get('items', []) or []) + [{
+            
+        # Get existing items, ensuring we have a list
+        existing_items = store_data.get('items', []) if isinstance(store_data, dict) else store_data
+        if not isinstance(existing_items, list):
+            existing_items = []
+            
+        # Append new item
+        new_items = existing_items + [{
             'id': project_id,
             'text': 'New',
             'description': '',
@@ -125,8 +151,7 @@ def register_callbacks(app):
         }]
         print("New items after project creation:", new_items)  # Debug print
      
-       
-        return  {'items': new_items, "active_project_id": project_id}
+        return {'items': new_items, "active_project_id": project_id}
     
     @app.callback(
         Output("list-store", "data", allow_duplicate=True),
