@@ -1,11 +1,58 @@
 import os
 from databricks import sql
 import logging
+from databricks.sdk.core import Config
+import flask
+
+assert os.getenv('DATABRICKS_WAREHOUSE_ID'), "DATABRICKS_WAREHOUSE_ID must be set in app.yaml."
+
+cfg = Config()
+print(cfg.host)
+print(cfg.authenticate)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Query the SQL warehouse with Service Principal credentials
+def get_sp_connection():
+
+    connection = sql.connect(
+        server_hostname=cfg.host,
+        http_path=f"/sql/1.0/warehouses/{cfg.warehouse_id}",
+        credentials_provider=lambda: cfg.authenticate  # Uses SP credentials from the environment variables
+    )
+
+    return connection
+
+
+
+# Query the SQL warehouse with the user credentials
+def get_user_token_connection(user_token):
+    connection = sql.connect(
+        server_hostname=cfg.host,
+        http_path=f"/sql/1.0/warehouses/{cfg.warehouse_id}",
+        access_token=user_token  # Pass the user token into the SQL connect to query on behalf of user
+    ) 
+    return connection
+
 def get_databricks_connection():
+    try:
+        # Extract user access token from the request headers
+        user_token = flask.request.headers.get('X-Forwarded-Access-Token')
+        if not user_token:
+            raise Exception("Missing access token in headers.")
+        # Query the SQL data with the user credentials
+        #return get_user_token_connection(user_token)
+        # In order to query with Service Principal credentials, comment the above line and uncomment the below line
+        return get_sp_connection()
+    except Exception as e:
+        print(f"Data connection failed: {str(e)}")
+        
+
+
+
+
+def get_databricks_connection_old():
     """Establishes a connection to the Databricks SQL warehouse.
 
     Uses environment variables DATABRICKS_HOST, DATABRICKS_WAREHOUSE_ID,
@@ -52,6 +99,8 @@ def execute_sql(connection, sql_query):
     Returns:
         bool: True if execution was successful, False otherwise.
     """
+
+    print(sql_query)
     if not connection:
         logger.error("Cannot execute SQL: No valid Databricks connection.")
         return False

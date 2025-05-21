@@ -5,27 +5,26 @@ from dotenv import load_dotenv
 from psycopg2.extras import RealDictCursor
 
 # Load database credentials from .env file
-load_dotenv(override=True)
+# load_dotenv(override=True)
 
-DB_NAME = os.getenv("DB_NAME")
-DB_USER = os.getenv("DB_USER")
-DB_PASSWORD = os.getenv("DB_PASSWORD")
-DB_HOST = os.getenv("DB_HOST")
-DB_PORT = os.getenv("DB_PORT")
-DB_SSLMODE = os.getenv("DB_SSLMODE", "require")
+# DB_NAME = os.getenv("DB_NAME")
+# DB_USER = os.getenv("DB_USER")
+# DB_PASSWORD = os.getenv("DB_PASSWORD")
+# DB_HOST = os.getenv("DB_HOST")
+# DB_PORT = os.getenv("DB_PORT")
+# DB_SSLMODE = os.getenv("DB_SSLMODE", "require")
 
 
-# DB_NAME = "ml_ops"
-# DB_USER = "bmac"
-# DB_PASSWORD = "mlops1234"
-# DB_HOST = "instance-aca94a42-c1f9-40a6-9bb4-a46ae4f2e623.database.cloud.databricks.com"
-# DB_PORT = "5432"
+DB_NAME = "databricks_postgres"
+DB_USER = "bmac"
+DB_PASSWORD = "mlops123"
+DB_HOST = "instance-c92a47e8-4189-499c-a200-cdc85ef81e15.database.azuredatabricks.net"
+DB_PORT = "5432"
+DB_SSLMODE = "require"
 
 def get_db_connection():
 
-    print("(************)")
-    print(DB_NAME, DB_USER, DB_PASSWORD, DB_HOST, DB_PORT, DB_SSLMODE)
-    print("(************)")
+
     """Establishes a connection to the PostgreSQL database."""
     try:
         conn = psycopg2.connect(

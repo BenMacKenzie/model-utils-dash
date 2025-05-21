@@ -3,9 +3,19 @@ import traceback
 import requests # Import requests library
 import json # Import json library
 import mlflow # Added mlflow import
+import flask
+from databricks.sdk.core import Config
+
+cfg = Config()
 
 # Removed Databricks SDK imports
-
+def get_host_and_token():
+      user_token = flask.request.headers.get('X-Forwarded-Access-Token')
+      host = cfg.host
+      print(host)
+      print(user_token)
+      return host, user_token
+  
 
 def get_runs(experiment_id, host, token):
     """
@@ -69,8 +79,10 @@ def get_experiment_runs(experiment_name, target_model_name=None):
     """
     try:
         # Get the host and token from environment variables
-        host = os.getenv('DATABRICKS_HOST')
-        token = os.getenv('DATABRICKS_TOKEN')
+        # host = os.getenv('DATABRICKS_HOST')
+        # token = os.getenv('DATABRICKS_TOKEN')
+
+        host, token = get_host_and_token()
         
         if not host or not token:
             msg = "Error: DATABRICKS_HOST and DATABRICKS_TOKEN environment variables must be set"
@@ -89,14 +101,20 @@ def get_experiment_runs(experiment_name, target_model_name=None):
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json"
         }
-        
-        experiment_name = f"/Users/ben.mackenzie@databricks.com/{experiment_name}"
+        username = os.getenv('DATABRICKS_CLIENT_ID')
+        print(username)
+        username = 'a9f4ca27-87ce-4d16-8532-7519536cfc6f'
+        experiment_name = f"/Users/{username}/{experiment_name}"
+
+        print(f"experiment name: {experiment_name}")
         
         # Set up the request body
         data = {
             "experiment_name": experiment_name
         }
         
+
+
         # Make the API call
         response = requests.get(url, headers=headers, json=data)
         
